@@ -166,6 +166,23 @@ async function leadsCount(username) {
   try { return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).length : 0; } catch { return 0; }
 }
 
+async function leadsCountLast30(username) {
+  const since = new Date(); since.setDate(since.getDate() - 30);
+  const sinceISO = since.toISOString().split('T')[0];
+  if (pool) {
+    const { rows } = await pool.query(
+      "SELECT COUNT(*) as c FROM leads WHERE username=$1 AND data->>'createdAt' >= $2",
+      [username, sinceISO]
+    );
+    return parseInt(rows[0].c);
+  }
+  const f = path.join(DATA_DIR, `leads_${username}.json`);
+  try {
+    const leads = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : [];
+    return leads.filter(l => (l.createdAt || '') >= sinceISO).length;
+  } catch { return 0; }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────
 
 function uid()         { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -243,11 +260,12 @@ app.get('/api/me', (req, res) => {
 app.get('/admin/users', requireAdmin, async (req, res) => {
   const users = await getUsers();
   const result = await Promise.all(users.map(async u => ({
-    username:   u.username,
-    name:       u.name,
-    role:       u.role,
-    webhookKey: u.webhookKey,
-    leadsCount: await leadsCount(u.username),
+    username:    u.username,
+    name:        u.name,
+    role:        u.role,
+    webhookKey:  u.webhookKey,
+    leadsCount:  await leadsCount(u.username),
+    leadsLast30: await leadsCountLast30(u.username),
   })));
   res.json(result);
 });

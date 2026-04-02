@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LeadFlow CRM — Gestión de Leads Facebook Ads</title>
+  <title>LAX Group CRM — Gestión de Leads Facebook Ads</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -42,6 +42,19 @@ const SOURCES = [
   'Facebook Ads', 'Instagram Ads', 'Facebook + Instagram',
   'WhatsApp', 'Referido', 'Orgánico', 'Otro',
 ];
+
+// Shared input style (defined here to avoid re-creating inside components, which causes focus loss)
+const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white";
+
+// Field wrapper must live outside any component to prevent remounting on every keystroke
+function Field({ label, children, span }) {
+  return (
+    <div className={span ? 'col-span-2' : ''}>
+      <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">{label}</label>
+      {children}
+    </div>
+  );
+}
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 const uid      = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -156,15 +169,6 @@ function LeadModal({ lead, onSave, onClose }) {
     onSave({ ...form, id: form.id || uid() });
   };
 
-  const Field = ({ label, children, span }) => (
-    <div className={span ? 'col-span-2' : ''}>
-      <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">{label}</label>
-      {children}
-    </div>
-  );
-
-  const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white";
-
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white w-full max-w-2xl mx-4 rounded-2xl shadow-2xl anim-fade max-h-[92vh] overflow-y-auto"
@@ -229,7 +233,7 @@ function LeadModal({ lead, onSave, onClose }) {
               className={inputCls} />
           </Field>
 
-          <Field label="Notas e historial" span>
+          <Field label="Observaciones" span>
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={3}
               className={`${inputCls} resize-none`}
               placeholder="Observaciones, historial de contacto, detalles importantes..." />
@@ -543,7 +547,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, showToast }) {
 
 /* ═══════════════════════════ PIPELINE ═══════════════════════════ */
 
-function PipelineView({ leads, onEdit, onStageChange, showToast }) {
+function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
   const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
   const [filter,    setFilter]    = useState('');
@@ -644,14 +648,22 @@ function PipelineView({ leads, onEdit, onStageChange, showToast }) {
 
                       <div className="flex items-center justify-between mt-1">
                         <ContactBtns lead={lead} />
-                        {stage.id !== 'converted' && stage.id !== 'lost' && (
+                        <div className="flex items-center gap-1">
+                          {stage.id !== 'converted' && stage.id !== 'lost' && (
+                            <button
+                              onClick={e => { e.stopPropagation(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
+                              title="Marcar convertido"
+                              className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors font-semibold border border-emerald-200">
+                              ✓ Cerrar
+                            </button>
+                          )}
                           <button
-                            onClick={e => { e.stopPropagation(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
-                            title="Marcar convertido"
-                            className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors font-semibold border border-emerald-200">
-                            ✓ Cerrar
+                            onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar a "${lead.name}"?`)) onDelete(lead.id); }}
+                            title="Eliminar lead"
+                            className="text-slate-300 hover:text-red-500 hover:bg-red-50 w-6 h-6 flex items-center justify-center rounded-lg transition-colors text-base leading-none border border-transparent hover:border-red-200">
+                            🗑
                           </button>
-                        )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -784,9 +796,9 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me }) {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-slate-700/50">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">LF</div>
+          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">LAX</div>
           <div>
-            <div className="font-bold text-white text-base leading-tight">LeadFlow</div>
+            <div className="font-bold text-white text-base leading-tight">LAX Group CRM</div>
             <div className="text-xs text-slate-400 leading-tight">CRM · Facebook Ads</div>
           </div>
         </div>
@@ -812,24 +824,26 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me }) {
         ))}
       </nav>
 
-      {/* Quick stats */}
-      <div className="p-4 border-t border-slate-700/50">
-        <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-3">Pipeline rápido</div>
-        <div className="space-y-2">
-          {STAGES.slice(0, 5).map(s => {
-            const count = stageCounts[s.id] || 0;
-            return (
-              <div key={s.id} className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.bar}`} />
-                  <span className="text-xs text-slate-400 truncate">{s.label}</span>
+      {/* Quick stats — only for clients */}
+      {!isAdmin && (
+        <div className="p-4 border-t border-slate-700/50">
+          <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-3">Pipeline rápido</div>
+          <div className="space-y-2">
+            {STAGES.slice(0, 5).map(s => {
+              const count = stageCounts[s.id] || 0;
+              return (
+                <div key={s.id} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.bar}`} />
+                    <span className="text-xs text-slate-400 truncate">{s.label}</span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-300">{count}</span>
                 </div>
-                <span className="text-xs font-bold text-slate-300">{count}</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* User + logout */}
       <div className="px-4 pb-4 space-y-2">
@@ -939,6 +953,33 @@ function AdminView({ showToast }) {
           </div>
         </form>
       </div>
+
+      {/* 30-day summary */}
+      {users.filter(u => u.role === 'client').length > 0 && (
+        <div className="bg-white border rounded-2xl p-6 mb-6">
+          <h2 className="font-semibold text-slate-700 mb-1">📈 Leads últimos 30 días</h2>
+          <p className="text-xs text-slate-400 mb-4">Leads ingresados por cliente en el último mes</p>
+          <div className="space-y-3">
+            {users.filter(u => u.role === 'client').map(u => {
+              const maxVal = Math.max(...users.filter(x => x.role === 'client').map(x => x.leadsLast30 || 0), 1);
+              const pct = Math.round(((u.leadsLast30 || 0) / maxVal) * 100);
+              return (
+                <div key={u.username} className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    {u.name.charAt(0)}
+                  </div>
+                  <span className="text-sm font-medium text-slate-700 w-32 truncate">{u.name}</span>
+                  <div className="flex-1 bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="h-full rounded-full bg-indigo-500 transition-all duration-700" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-sm font-bold text-slate-700 w-10 text-right">{u.leadsLast30 || 0}</span>
+                  <span className="text-xs text-slate-400 w-20">de {u.leadsCount} total</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Users table */}
       <div className="bg-white border rounded-2xl overflow-hidden">
