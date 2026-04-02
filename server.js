@@ -341,7 +341,7 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'leadflow-crm.html'
 
 bootstrap().then(() => {
   app.listen(PORT, () => {
-    console.log(`✅  LeadFlow CRM  →  http://localhost:${PORT}`);
+    console.log(`✅  LAX Group CRM  →  http://localhost:${PORT}`);
     console.log(`📡  Webhooks      →  http://localhost:${PORT}/api/webhook/:key`);
   });
 }).catch(err => { console.error('Error al arrancar:', err); process.exit(1); });
