@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LeadFlow CRM — Iniciar sesión</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    .fade-up { animation: fadeUp .35s ease; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+
+  <div class="fade-up w-full max-w-sm">
+
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-2xl shadow-xl mb-4">
+        <span class="text-white font-bold text-xl">LF</span>
+      </div>
+      <h1 class="text-2xl font-bold text-white">LeadFlow CRM</h1>
+      <p class="text-slate-400 text-sm mt-1">Gestión de Leads · Facebook Ads</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-slate-800 rounded-2xl p-8 shadow-2xl border border-slate-700">
+      <h2 class="text-lg font-semibold text-white mb-6">Iniciar sesión</h2>
+
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">Usuario</label>
+          <input id="username" type="text" autocomplete="username" required
+            class="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+            placeholder="tu usuario" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">Contraseña</label>
+          <div class="relative">
+            <input id="password" type="password" autocomplete="current-password" required
+              class="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all pr-11"
+              placeholder="••••••••" />
+            <button type="button" id="togglePwd"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors text-sm px-1">
+              👁
+            </button>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div id="errorMsg" class="hidden bg-red-900/50 border border-red-700 text-red-300 text-sm px-4 py-3 rounded-xl">
+          Usuario o contraseña incorrectos
+        </div>
+
+        <button type="submit" id="submitBtn"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl text-sm transition-all shadow-lg disabled:opacity-60 disabled:cursor-not-allowed mt-2">
+          Entrar
+        </button>
+      </form>
+    </div>
+
+    <p class="text-center text-slate-600 text-xs mt-6">
+      LeadFlow CRM · {{ cliente }}
+    </p>
+  </div>
+
+  <script>
+    const form      = document.getElementById('loginForm');
+    const errorMsg  = document.getElementById('errorMsg');
+    const submitBtn = document.getElementById('submitBtn');
+    const togglePwd = document.getElementById('togglePwd');
+    const pwdInput  = document.getElementById('password');
+
+    togglePwd.addEventListener('click', () => {
+      pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+    });
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errorMsg.classList.add('hidden');
+      submitBtn.disabled    = true;
+      submitBtn.textContent = 'Verificando...';
+
+      try {
+        const res  = await fetch('/auth/login', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value,
+          }),
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          submitBtn.textContent = '✓ Entrando...';
+          window.location.href  = '/';
+        } else {
+          errorMsg.textContent = data.error || 'Usuario o contraseña incorrectos';
+          errorMsg.classList.remove('hidden');
+          submitBtn.disabled    = false;
+          submitBtn.textContent = 'Entrar';
+          document.getElementById('password').value = '';
+          document.getElementById('password').focus();
+        }
+      } catch {
+        errorMsg.textContent = 'Error de conexión. Verificá que el servidor esté activo.';
+        errorMsg.classList.remove('hidden');
+        submitBtn.disabled    = false;
+        submitBtn.textContent = 'Entrar';
+      }
+    });
+
+    // Auto-focus
+    document.getElementById('username').focus();
+  </script>
+</body>
+</html>

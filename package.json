@@ -1,0 +1,20 @@
+{
+  "name": "leadflow-crm",
+  "version": "1.0.0",
+  "description": "LeadFlow CRM — Gestión de Leads Facebook Ads",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "pg": "^8.20.0"
+  }
+}
