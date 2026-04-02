@@ -49,7 +49,7 @@ const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm fo
 // Field wrapper must live outside any component to prevent remounting on every keystroke
 function Field({ label, children, span }) {
   return (
-    <div className={span ? 'col-span-2' : ''}>
+    <div className={span ? 'col-span-full' : ''}>
       <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">{label}</label>
       {children}
     </div>
@@ -180,7 +180,7 @@ function LeadModal({ lead, onSave, onClose }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Nombre completo *" span>
             <input required value={form.name} onChange={e => set('name', e.target.value)}
               className={inputCls} placeholder="Ej: María García" />
@@ -239,7 +239,7 @@ function LeadModal({ lead, onSave, onClose }) {
               placeholder="Observaciones, historial de contacto, detalles importantes..." />
           </Field>
 
-          <div className="col-span-2 flex justify-end gap-3 pt-2 border-t">
+          <div className="col-span-full flex justify-end gap-3 pt-2 border-t">
             <button type="button" onClick={onClose}
               className="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
               Cancelar
@@ -270,7 +270,7 @@ function Dashboard({ leads, onEdit, onOpenNew, goTo }) {
   const stageCounts  = Object.fromEntries(STAGES.map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
 
   return (
-    <div className="p-6 space-y-6 anim-fade">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 anim-fade">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -442,7 +442,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, showToast }) {
   );
 
   return (
-    <div className="p-6 anim-fade">
+    <div className="p-4 sm:p-6 anim-fade">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Todos los Leads</h1>
@@ -482,7 +482,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, showToast }) {
 
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="bg-slate-50 border-b">
                 <Th col="name">Nombre</Th>
@@ -560,7 +560,7 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
   const byStage = Object.fromEntries(STAGES.map(s => [s.id, filtered.filter(l => l.stage === s.id)]));
 
   return (
-    <div className="p-6 anim-fade">
+    <div className="p-4 sm:p-6 anim-fade">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Pipeline de Ventas</h1>
@@ -742,7 +742,7 @@ function RemindersView({ leads, onEdit }) {
   );
 
   return (
-    <div className="p-6 anim-fade max-w-3xl">
+    <div className="p-4 sm:p-6 anim-fade max-w-3xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800">Recordatorios y Seguimientos</h1>
         <p className="text-sm text-slate-500 mt-0.5">No pierdas ninguna oportunidad — contactá a tus leads a tiempo</p>
@@ -774,7 +774,7 @@ function RemindersView({ leads, onEdit }) {
 
 /* ═══════════════════════════ SIDEBAR ════════════════════════════ */
 
-function Sidebar({ view, goTo, leads, syncing, lastSync, me }) {
+function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) {
   const isAdmin    = me?.role === 'admin';
   const alertCount = leads.filter(l =>
     (isOverdue(l.followUpDate) || isToday(l.followUpDate)) && !['converted','lost'].includes(l.stage)
@@ -791,80 +791,98 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me }) {
 
   const stageCounts = Object.fromEntries(STAGES.slice(0, 5).map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
 
+  const handleNav = id => { goTo(id); onClose && onClose(); };
+
   return (
-    <aside className="w-58 bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 h-screen sticky top-0 overflow-hidden" style={{ width: '230px' }}>
-      {/* Logo */}
-      <div className="px-5 py-5 border-b border-slate-700/50">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">LAX</div>
-          <div>
-            <div className="font-bold text-white text-base leading-tight">LAX Group CRM</div>
-            <div className="text-xs text-slate-400 leading-tight">CRM · Facebook Ads</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Nav */}
-      <nav className="flex-1 p-3 space-y-1">
-        {nav.map(item => (
-          <button key={item.id} onClick={() => goTo(item.id)}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all
-              ${view === item.id ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-300'}`}>
-            <span className="flex items-center gap-2.5">
-              <span>{item.icon}</span>
-              {item.label}
-            </span>
-            {item.badge > 0 && (
-              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center
-                ${view === item.id ? 'bg-white/25 text-white' : 'bg-red-500 text-white'}`}>
-                {item.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      {/* Quick stats — only for clients */}
-      {!isAdmin && (
-        <div className="p-4 border-t border-slate-700/50">
-          <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-3">Pipeline rápido</div>
-          <div className="space-y-2">
-            {STAGES.slice(0, 5).map(s => {
-              const count = stageCounts[s.id] || 0;
-              return (
-                <div key={s.id} className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.bar}`} />
-                    <span className="text-xs text-slate-400 truncate">{s.label}</span>
-                  </div>
-                  <span className="text-xs font-bold text-slate-300">{count}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={onClose} />
       )}
+      <aside
+        className="bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 h-screen z-40 overflow-hidden transition-transform duration-300"
+        style={{
+          width: '230px',
+          position: typeof window !== 'undefined' && window.innerWidth < 768 ? 'fixed' : 'sticky',
+          top: 0,
+          transform: typeof window !== 'undefined' && window.innerWidth < 768 && !isOpen ? 'translateX(-100%)' : 'translateX(0)',
+        }}>
+        {/* Logo */}
+        <div className="px-5 py-5 border-b border-slate-700/50">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg">LAX</div>
+              <div>
+                <div className="font-bold text-white text-base leading-tight">LAX Group CRM</div>
+                <div className="text-xs text-slate-400 leading-tight">CRM · Facebook Ads</div>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-slate-500 hover:text-white p-1 rounded md:hidden">✕</button>
+          </div>
+        </div>
 
-      {/* User + logout */}
-      <div className="px-4 pb-4 space-y-2">
-        <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${syncing ? 'bg-indigo-900/50 text-indigo-300' : 'bg-slate-800 text-slate-500'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncing ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`} />
-          <span className="truncate">
-            {syncing ? 'Sincronizando...' : lastSync ? `Sync ${lastSync}` : 'Conectando...'}
-          </span>
+        {/* Nav */}
+        <nav className="flex-1 p-3 space-y-1">
+          {nav.map(item => (
+            <button key={item.id} onClick={() => handleNav(item.id)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all
+                ${view === item.id ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-300'}`}>
+              <span className="flex items-center gap-2.5">
+                <span>{item.icon}</span>
+                {item.label}
+              </span>
+              {item.badge > 0 && (
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center
+                  ${view === item.id ? 'bg-white/25 text-white' : 'bg-red-500 text-white'}`}>
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Quick stats — only for clients */}
+        {!isAdmin && (
+          <div className="p-4 border-t border-slate-700/50">
+            <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-3">Pipeline rápido</div>
+            <div className="space-y-2">
+              {STAGES.slice(0, 5).map(s => {
+                const count = stageCounts[s.id] || 0;
+                return (
+                  <div key={s.id} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.bar}`} />
+                      <span className="text-xs text-slate-400 truncate">{s.label}</span>
+                    </div>
+                    <span className="text-xs font-bold text-slate-300">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* User + logout */}
+        <div className="px-4 pb-4 space-y-2">
+          <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${syncing ? 'bg-indigo-900/50 text-indigo-300' : 'bg-slate-800 text-slate-500'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncing ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`} />
+            <span className="truncate">
+              {syncing ? 'Sincronizando...' : lastSync ? `Sync ${lastSync}` : 'Conectando...'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-slate-500 truncate">
+              {me?.name || 'LAX Group CRM'}
+              {me?.role === 'admin' && <span className="ml-1 text-indigo-400">· Admin</span>}
+            </span>
+            <a href="/auth/logout" title="Cerrar sesión"
+              className="text-xs text-slate-600 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-800">
+              ⎋ Salir
+            </a>
+          </div>
         </div>
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs text-slate-500 truncate">
-            {me?.name || 'LeadFlow'}
-            {me?.role === 'admin' && <span className="ml-1 text-indigo-400">· Admin</span>}
-          </span>
-          <a href="/auth/logout" title="Cerrar sesión"
-            className="text-xs text-slate-600 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-800">
-            ⎋ Salir
-          </a>
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 
@@ -923,7 +941,7 @@ function AdminView({ showToast }) {
   const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";
 
   return (
-    <div className="p-6 anim-fade max-w-4xl">
+    <div className="p-4 sm:p-6 anim-fade max-w-4xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800">Panel de Administración</h1>
         <p className="text-sm text-slate-500 mt-0.5">Gestioná los accesos de tus clientes al CRM</p>
@@ -932,7 +950,7 @@ function AdminView({ showToast }) {
       {/* Create user form */}
       <div className="bg-white border rounded-2xl p-6 mb-6">
         <h2 className="font-semibold text-slate-700 mb-4">➕ Crear nuevo cliente</h2>
-        <form onSubmit={handleCreate} className="grid grid-cols-3 gap-3 items-end">
+        <form onSubmit={handleCreate} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Nombre del cliente</label>
             <input value={form.name} onChange={e => setF('name', e.target.value)} className={inputCls} placeholder="Ej: H Group" required />
@@ -945,7 +963,7 @@ function AdminView({ showToast }) {
             <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Contraseña</label>
             <input value={form.password} onChange={e => setF('password', e.target.value)} className={inputCls} placeholder="Contraseña segura" required />
           </div>
-          <div className="col-span-3 flex justify-end">
+          <div className="col-span-full flex justify-end">
             <button type="submit" disabled={creating}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-60">
               {creating ? 'Creando...' : '✓ Crear cliente'}
@@ -990,7 +1008,8 @@ function AdminView({ showToast }) {
         {loading ? (
           <div className="py-12 text-center text-slate-400">Cargando...</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="bg-slate-50 border-b">
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cliente</th>
@@ -1058,6 +1077,7 @@ function AdminView({ showToast }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -1067,13 +1087,14 @@ function AdminView({ showToast }) {
 /* ═══════════════════════════ APP ════════════════════════════════ */
 
 function App() {
-  const [leads,    setLeads]   = useState(loadLeads);
-  const [view,     setView]    = useState('dashboard');
-  const [modal,    setModal]   = useState(undefined);
-  const [toast,    setToast]   = useState(null);
-  const [syncing,  setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState(null);
-  const [me,       setMe]      = useState(null); // { username, name, role }
+  const [leads,      setLeads]      = useState(loadLeads);
+  const [view,       setView]       = useState('dashboard');
+  const [modal,      setModal]      = useState(undefined);
+  const [toast,      setToast]      = useState(null);
+  const [syncing,    setSyncing]    = useState(false);
+  const [lastSync,   setLastSync]   = useState(null);
+  const [me,         setMe]         = useState(null);
+  const [menuOpen,   setMenuOpen]   = useState(false);
 
   const showToast = (msg, type = 'info') => setToast({ msg, type, id: Date.now() });
 
@@ -1140,9 +1161,27 @@ function App() {
   const isAdmin    = me?.role === 'admin';
   const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, showToast };
 
+  const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reminders:'Recordatorios', admin:'Clientes' };
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar view={view} goTo={setView} leads={leads} syncing={syncing} lastSync={lastSync} me={me} />
+      <Sidebar view={view} goTo={setView} leads={leads} syncing={syncing} lastSync={lastSync} me={me}
+        isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 text-white flex-shrink-0 shadow-md">
+          <button onClick={() => setMenuOpen(true)} className="text-slate-300 hover:text-white p-1 -ml-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-lg flex items-center justify-center text-white font-bold text-xs">LAX</div>
+            <span className="font-semibold text-sm">{viewLabels[view] || 'LAX Group CRM'}</span>
+          </div>
+          <div className={`w-2 h-2 rounded-full ${syncing ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`} />
+        </div>
 
       <main className="flex-1 overflow-y-auto bg-slate-50">
         {view === 'admin'     && <AdminView showToast={showToast} />}
@@ -1165,6 +1204,7 @@ function App() {
       {toast && (
         <Toast key={toast.id} msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />
       )}
+      </div>{/* end flex-1 column */}
     </div>
   );
 }
