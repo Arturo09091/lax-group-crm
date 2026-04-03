@@ -51,6 +51,28 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
+/* ═══════════════════════ ERROR BOUNDARY ═════════════════════════ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-sm w-full text-center">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h2 className="text-white font-bold text-lg mb-2">Algo salió mal</h2>
+          <p className="text-slate-400 text-sm mb-6">Hubo un error al cargar la aplicación. Intentá recargar la página.</p>
+          <button onClick={() => window.location.reload()}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl text-sm transition-all">
+            🔄 Recargar
+          </button>
+        </div>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
 /* ═══════════════════════════ CONSTANTS ═══════════════════════════ */
 
 const STAGES = [
@@ -1073,6 +1095,14 @@ function ReportsView({ leads }) {
 
 function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) {
   const isAdmin    = me?.role === 'admin';
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const alertCount = leads.filter(l =>
     (isOverdue(l.followUpDate) || isToday(l.followUpDate)) && !['converted','lost'].includes(l.stage)
   ).length;
@@ -1100,10 +1130,11 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
       <aside
         className="sidebar-hide no-print bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 h-screen z-40 overflow-hidden transition-transform duration-300"
         style={{
-          width: '230px',
-          position: typeof window !== 'undefined' && window.innerWidth < 768 ? 'fixed' : 'sticky',
+          width: '260px',
+          position: isMobile ? 'fixed' : 'sticky',
           top: 0,
-          transform: typeof window !== 'undefined' && window.innerWidth < 768 && !isOpen ? 'translateX(-100%)' : 'translateX(0)',
+          left: 0,
+          transform: isMobile && !isOpen ? 'translateX(-260px)' : 'translateX(0)',
         }}>
         {/* Logo */}
         <div className="px-5 py-5 border-b border-slate-700/50">
@@ -1414,6 +1445,7 @@ function App() {
   const [lastSync,   setLastSync]   = useState(null);
   const [me,         setMe]         = useState(null);
   const [menuOpen,   setMenuOpen]   = useState(false);
+  const [appReady,   setAppReady]   = useState(false);
 
   const showToast = (msg, type = 'info') => setToast({ msg, type, id: Date.now() });
 
@@ -1422,9 +1454,9 @@ function App() {
     fetch('/api/me').then(r => r.json()).then(data => {
       if (data.username) {
         setMe(data);
-        if (data.role === 'admin') setView('admin'); // Admin lands on admin panel
+        if (data.role === 'admin') setView('admin');
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setAppReady(true));
   }, []);
 
   // Pull leads from server (called on mount + every 30s to catch Make webhook leads)
@@ -1482,12 +1514,37 @@ function App() {
 
   const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
 
+  // Loading screen while we check the session
+  if (!appReady) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-center">
+        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style={{width:'56px',height:'56px',borderRadius:'14px',margin:'0 auto 16px'}}>
+          <defs>
+            <linearGradient id="lbg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#6366f1"/><stop offset="100%" stopColor="#3730a3"/></linearGradient>
+            <linearGradient id="lacc2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a5b4fc"/><stop offset="100%" stopColor="#ffffff"/></linearGradient>
+          </defs>
+          <rect width="200" height="200" rx="44" fill="url(#lbg2)"/>
+          <circle cx="76" cy="52" r="11" fill="white" opacity="0.95"/>
+          <circle cx="100" cy="44" r="13" fill="white"/>
+          <circle cx="124" cy="52" r="11" fill="white" opacity="0.95"/>
+          <path d="M52 80 L148 80 L130 108 L70 108 Z" fill="url(#lacc2)" opacity="0.95"/>
+          <path d="M70 112 L130 112 L118 136 L82 136 Z" fill="url(#lacc2)" opacity="0.9"/>
+          <path d="M82 140 L118 140 L112 158 L88 158 Z" fill="url(#lacc2)" opacity="0.85"/>
+          <path d="M88 162 Q100 182 112 162 L108 158 L92 158 Z" fill="white" opacity="0.9"/>
+        </svg>
+        <div className="text-white font-semibold text-lg">LAX Group CRM</div>
+        <div className="text-slate-400 text-sm mt-1 animate-pulse">Cargando...</div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar view={view} goTo={setView} leads={leads} syncing={syncing} lastSync={lastSync} me={me}
-        isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
+        isOpen={menuOpen} onClose={() => setMenuOpen(false)} isMobileLayout={true} />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* This div takes all remaining width — on mobile sidebar is fixed so this div uses full width */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Mobile top bar */}
         <div className="no-print md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 text-white flex-shrink-0 shadow-md">
           <button onClick={() => setMenuOpen(true)} className="text-slate-300 hover:text-white p-1 -ml-1">
@@ -1548,7 +1605,9 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary><App /></ErrorBoundary>
+);
 </script>
 </body>
 </html>
