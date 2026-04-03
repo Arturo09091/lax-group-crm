@@ -772,6 +772,257 @@ function RemindersView({ leads, onEdit }) {
   );
 }
 
+/* ═══════════════════════════ REPORTS ═══════════════════════════ */
+
+function buildReport(leads, days) {
+  const since = new Date(); since.setDate(since.getDate() - days);
+  const sinceISO = since.toISOString().split('T')[0];
+  const prev = new Date(); prev.setDate(prev.getDate() - days * 2);
+  const prevISO = prev.toISOString().split('T')[0];
+
+  const period = leads.filter(l => (l.createdAt || '') >= sinceISO);
+  const prevPeriod = leads.filter(l => (l.createdAt || '') >= prevISO && (l.createdAt || '') < sinceISO);
+
+  const total     = period.length;
+  const prevTotal = prevPeriod.length;
+  const converted = period.filter(l => l.stage === 'converted').length;
+  const lost      = period.filter(l => l.stage === 'lost').length;
+  const active    = period.filter(l => !['converted','lost'].includes(l.stage)).length;
+  const convRate  = total ? Math.round(converted / total * 100) : 0;
+  const lostRate  = total ? Math.round(lost / total * 100) : 0;
+  const potValue  = period.filter(l => l.stage !== 'lost').reduce((s,l) => s+(+l.value||0), 0);
+  const wonValue  = period.filter(l => l.stage === 'converted').reduce((s,l) => s+(+l.value||0), 0);
+  const trend     = prevTotal > 0 ? Math.round((total - prevTotal) / prevTotal * 100) : null;
+  const overdue   = period.filter(l => isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage)).length;
+  const avgValue  = converted > 0 ? Math.round(wonValue / converted) : 0;
+
+  const byStage = STAGES.map(s => ({
+    ...s, count: period.filter(l => l.stage === s.id).length,
+    pct: total ? Math.round(period.filter(l => l.stage === s.id).length / total * 100) : 0,
+  }));
+
+  const srcMap = {};
+  period.forEach(l => { if (l.source) srcMap[l.source] = (srcMap[l.source]||0)+1; });
+  const bySrc = Object.entries(srcMap).sort((a,b) => b[1]-a[1]);
+
+  // ── AI-style analysis ──────────────────────────────────────────
+  const periodLabel = days === 7 ? 'semana' : days === 15 ? 'quincena' : 'mes';
+  let rating, ratingEmoji, ratingBg;
+  if      (convRate >= 20) { rating = 'Excelente';          ratingEmoji = '🏆'; ratingBg = 'bg-emerald-50 border-emerald-200 text-emerald-800'; }
+  else if (convRate >= 12) { rating = 'Muy bueno';           ratingEmoji = '✅'; ratingBg = 'bg-blue-50 border-blue-200 text-blue-800'; }
+  else if (convRate >= 6)  { rating = 'Regular';             ratingEmoji = '📊'; ratingBg = 'bg-yellow-50 border-yellow-200 text-yellow-800'; }
+  else if (total === 0)    { rating = 'Sin actividad';        ratingEmoji = '😴'; ratingBg = 'bg-slate-50 border-slate-200 text-slate-600'; }
+  else                     { rating = 'Necesita atención';   ratingEmoji = '⚠️'; ratingBg = 'bg-red-50 border-red-200 text-red-800'; }
+
+  const bottleneck = byStage.filter(s => !['converted','lost'].includes(s.id)).reduce((m,s) => s.count > m.count ? s : m, { count:0, label:'—' });
+  const bestSrc    = bySrc[0];
+
+  let summary;
+  if (total === 0) {
+    summary = `No se registraron leads en los últimos ${days} días. Revisá las campañas de captación activas y asegurate de que el webhook de Make está funcionando correctamente.`;
+  } else {
+    const trendTxt = trend === null ? '' : trend > 0 ? `, un ${trend}% más que el período anterior 📈` : trend < 0 ? `, un ${Math.abs(trend)}% menos que el período anterior 📉` : ', igual que el período anterior';
+    summary = `En los últimos ${days} días captaste ${total} lead${total!==1?'s':''}${trendTxt}. De ellos, ${converted} se convirtier${converted!==1?'on':'ó'} en clientes (${convRate}%)${wonValue > 0 ? ` generando $${wonValue.toLocaleString('es')} en ventas cerradas` : ''}. Hay ${active} lead${active!==1?'s':''} activos con un valor potencial de $${potValue.toLocaleString('es')}.`;
+  }
+
+  const positives = [];
+  if (convRate >= 15) positives.push(`Tasa de conversión del ${convRate}% — por encima del promedio del sector (10-15%).`);
+  if (trend !== null && trend > 10) positives.push(`Crecimiento del ${trend}% en volumen de leads vs. período anterior.`);
+  if (wonValue > 0) positives.push(`$${wonValue.toLocaleString('es')} en ventas cerradas durante este período.`);
+  if (bestSrc) positives.push(`"${bestSrc[0]}" es tu mejor fuente con ${bestSrc[1]} lead${bestSrc[1]!==1?'s':''}.`);
+  if (overdue === 0 && total > 0) positives.push('Todos los seguimientos están al día — excelente gestión.');
+  if (positives.length === 0) positives.push('El sistema está activo y registrando leads correctamente.');
+
+  const issues = [];
+  if (overdue > 0) issues.push(`${overdue} lead${overdue!==1?'s tienen':' tiene'} seguimiento vencido — cada día reduce las chances de cerrar.`);
+  if (lostRate > 30) issues.push(`Alta tasa de pérdida (${lostRate}%): ${lost} leads descartados. Revisar el proceso de calificación.`);
+  if (bottleneck.count > 2) issues.push(`Embudo congestionado en "${bottleneck.label}" con ${bottleneck.count} leads sin avanzar.`);
+  if (convRate < 5 && total > 3) issues.push(`Conversión del ${convRate}% es baja. Evaluar calidad de leads entrantes y proceso de venta.`);
+  if (trend !== null && trend < -20) issues.push(`Caída del ${Math.abs(trend)}% en leads — revisá el rendimiento de tus campañas.`);
+  if (issues.length === 0 && total > 0) issues.push('No se detectaron problemas críticos en este período.');
+  if (issues.length === 0 && total === 0) issues.push('Sin leads no hay datos para analizar. Verificá que Make esté enviando los leads al CRM.');
+
+  const recs = [];
+  if (overdue > 0) recs.push(`Prioridad #1: contactar hoy los ${overdue} lead${overdue!==1?'s':''} con seguimiento vencido.`);
+  if (bottleneck.count > 1) recs.push(`Agendar llamadas para los ${bottleneck.count} leads estancados en "${bottleneck.label}".`);
+  if (active > 0) recs.push(`Hay $${potValue.toLocaleString('es')} en el pipeline activo. Enfocate en cerrarlos antes de captar nuevos.`);
+  if (bySrc.length > 1) recs.push(`Invertí más en "${bestSrc[0]}" y analizá el ROI de las demás fuentes.`);
+  if (convRate < 10 && total > 0) recs.push('Revisá el script de ventas y el tiempo de respuesta al primer contacto.');
+  if (recs.length === 0) recs.push('Mantené el ritmo actual y registrá cada interacción en el CRM.');
+
+  return { total, prevTotal, trend, converted, lost, active, convRate, lostRate, potValue, wonValue, avgValue, overdue, byStage, bySrc, rating, ratingEmoji, ratingBg, summary, positives: positives.slice(0,3), issues: issues.slice(0,3), recs: recs.slice(0,3) };
+}
+
+function ReportsView({ leads }) {
+  const [days, setDays] = useState(30);
+  const report = buildReport(leads, days);
+
+  const fmtVal = v => v >= 1000 ? `$${(v/1000).toFixed(v%1000===0?0:1)}k` : `$${v}`;
+
+  const KPI = ({ label, value, sub, icon, color }) => (
+    <div className={`rounded-xl p-4 border ${color}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-semibold uppercase tracking-wide opacity-60">{label}</span>
+        <span className="text-xl">{icon}</span>
+      </div>
+      <div className="text-2xl font-bold">{value}</div>
+      {sub && <div className="text-xs opacity-55 mt-0.5">{sub}</div>}
+    </div>
+  );
+
+  const trendBadge = report.trend !== null ? (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${report.trend >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+      {report.trend >= 0 ? '▲' : '▼'} {Math.abs(report.trend)}% vs período anterior
+    </span>
+  ) : null;
+
+  return (
+    <div className="p-4 sm:p-6 anim-fade max-w-5xl space-y-6">
+
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Informes de Rendimiento</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Análisis automático de tu pipeline de ventas</p>
+        </div>
+        <div className="flex gap-2">
+          {[7,15,30].map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all border
+                ${days === d ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+              {d} días
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Rating banner */}
+      <div className={`flex items-center gap-4 p-4 rounded-2xl border-2 ${report.ratingBg}`}>
+        <span className="text-4xl">{report.ratingEmoji}</span>
+        <div>
+          <div className="font-bold text-lg">{report.rating} {trendBadge && <span className="ml-2">{trendBadge}</span>}</div>
+          <p className="text-sm mt-0.5 opacity-80 leading-relaxed">{report.summary}</p>
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KPI label="Leads captados"   value={report.total}                         icon="👥" color="bg-indigo-50 border-indigo-100 text-indigo-800"  sub={`${report.active} activos`} />
+        <KPI label="Convertidos"      value={`${report.converted} (${report.convRate}%)`} icon="✅" color="bg-emerald-50 border-emerald-100 text-emerald-800" sub="tasa de cierre" />
+        <KPI label="Valor cerrado"    value={fmtVal(report.wonValue)}              icon="💰" color="bg-amber-50 border-amber-100 text-amber-800"     sub={report.avgValue > 0 ? `Promedio ${fmtVal(report.avgValue)}` : 'Sin cierres aún'} />
+        <KPI label="Pipeline activo"  value={fmtVal(report.potValue)}              icon="🔄" color="bg-blue-50 border-blue-100 text-blue-800"       sub={`${report.overdue} vencidos`} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+
+        {/* Pipeline funnel */}
+        <div className="bg-white border rounded-2xl p-5">
+          <h3 className="font-semibold text-slate-700 mb-4">Embudo del Pipeline</h3>
+          <div className="space-y-2.5">
+            {report.byStage.map(s => (
+              <div key={s.id}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-slate-600">{s.label}</span>
+                  <span className="text-xs font-bold text-slate-700">{s.count} leads · {s.pct}%</span>
+                </div>
+                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all duration-700 ${s.bar}`}
+                    style={{ width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Sources */}
+        <div className="bg-white border rounded-2xl p-5">
+          <h3 className="font-semibold text-slate-700 mb-4">Fuentes de Leads</h3>
+          {report.bySrc.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-sm">Sin datos en este período</div>
+          ) : (
+            <div className="space-y-2.5">
+              {report.bySrc.map(([src, count]) => {
+                const pct = report.total ? Math.round(count / report.total * 100) : 0;
+                return (
+                  <div key={src}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-slate-600 truncate">{src}</span>
+                      <span className="text-xs font-bold text-slate-700 ml-2">{count} · {pct}%</span>
+                    </div>
+                    <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-indigo-400 transition-all duration-700" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* AI Analysis */}
+      <div className="bg-white border rounded-2xl p-5 space-y-5">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🤖</span>
+          <h3 className="font-semibold text-slate-700">Análisis e Interpretación</h3>
+          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">Generado automáticamente</span>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-4">
+          {/* Positivos */}
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">💪</span>
+              <span className="text-sm font-bold text-emerald-800">Lo que va bien</span>
+            </div>
+            <ul className="space-y-2">
+              {report.positives.map((p,i) => (
+                <li key={i} className="flex gap-2 text-xs text-emerald-700 leading-relaxed">
+                  <span className="flex-shrink-0 mt-0.5">✓</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Problemas */}
+          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">🔍</span>
+              <span className="text-sm font-bold text-amber-800">Áreas de mejora</span>
+            </div>
+            <ul className="space-y-2">
+              {report.issues.map((p,i) => (
+                <li key={i} className="flex gap-2 text-xs text-amber-700 leading-relaxed">
+                  <span className="flex-shrink-0 mt-0.5">⚠</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Recomendaciones */}
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">🎯</span>
+              <span className="text-sm font-bold text-indigo-800">Acciones recomendadas</span>
+            </div>
+            <ul className="space-y-2">
+              {report.recs.map((p,i) => (
+                <li key={i} className="flex gap-2 text-xs text-indigo-700 leading-relaxed">
+                  <span className="flex-shrink-0 font-bold mt-0.5">{i+1}.</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 /* ═══════════════════════════ SIDEBAR ════════════════════════════ */
 
 function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) {
@@ -783,9 +1034,10 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
   const nav = isAdmin
     ? [{ id: 'admin', label: 'Clientes', icon: '⚙️' }]
     : [
-        { id: 'dashboard',  label: 'Dashboard',     icon: '📊' },
+        { id: 'dashboard',  label: 'Dashboard',     icon: '🏠' },
         { id: 'leads',      label: 'Leads',          icon: '👥' },
         { id: 'pipeline',   label: 'Pipeline',       icon: '🔄' },
+        { id: 'reports',    label: 'Informes',       icon: '📈' },
         { id: 'reminders',  label: 'Recordatorios',  icon: '🔔', badge: alertCount },
       ];
 
@@ -1182,7 +1434,7 @@ function App() {
   const isAdmin    = me?.role === 'admin';
   const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, showToast };
 
-  const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reminders:'Recordatorios', admin:'Clientes' };
+  const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -1232,6 +1484,7 @@ function App() {
         )}
         {view === 'leads'     && !isAdmin && <LeadsView     {...commonProps} />}
         {view === 'pipeline'  && !isAdmin && <PipelineView  {...commonProps} />}
+        {view === 'reports'   && !isAdmin && <ReportsView   leads={leads} />}
         {view === 'reminders' && !isAdmin && <RemindersView {...commonProps} />}
       </main>
 
