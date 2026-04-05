@@ -1833,7 +1833,13 @@ function App() {
             </svg>
             <span className="font-semibold text-sm">{viewLabels[view] || 'LAX Group CRM'}</span>
           </div>
-          <div className={`w-2 h-2 rounded-full ${syncing ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`} />
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${syncing ? 'bg-indigo-400 animate-pulse' : 'bg-emerald-500'}`} />
+            <a href="/auth/logout" title="Cerrar sesión"
+              className="text-slate-400 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-slate-800 text-sm leading-none">
+              ⎋
+            </a>
+          </div>
         </div>
 
       <main className="flex-1 overflow-y-auto bg-slate-50">
