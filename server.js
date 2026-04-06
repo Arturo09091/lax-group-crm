@@ -190,15 +190,25 @@ function wKey()        { return 'wh-' + Math.random().toString(36).slice(2,10) +
 function todayISO()    { return new Date().toISOString().split('T')[0]; }
 function tomorrowISO() { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; }
 
+// Known accounts to seed into PostgreSQL on first deploy.
+// Passwords are bcrypt hashes — plain-text passwords are never stored here.
+const SEED_USERS = [
+  { username: 'arturo',  name: 'Arturo Abellan', role: 'admin',  passwordHash: '$2b$10$ro7AZNNOSND2QSFpILCZGea23FqSXrwdzhvEFALrUc3vK2bJ.S45y', webhookKey: null },
+  { username: 'hgroup',  name: 'H Group',        role: 'client', passwordHash: '$2b$10$cZNqjV966pvuiJkpSgQte.x7Y./51U6O69V8tC6kgkSTxdWbTcjO2', webhookKey: 'hgrp-3xcb2txiapy8sl30' },
+  { username: 'lucas',   name: 'paco',           role: 'client', passwordHash: '$2b$10$2ZcgxuxaEDPutsBPd9y9mOWaP0rxT2fkAYCQcVXCrrmxDhUUMUiAq', webhookKey: 'wh-r7xqixhbj9uq2lj7' },
+  { username: 'pepe',    name: 'vcbn',           role: 'client', passwordHash: '$2b$10$8iRznQwiC0kjEKTWi6xndOrbaJ.4snPVLPn2EfikROCS33VRC2t7y', webhookKey: 'wh-9gpod0xglt4twqh5' },
+];
+
 async function bootstrap() {
   if (pool) await initDB();
 
   const users = await getUsers();
   if (users.length === 0) {
-    const pass = process.env.ADMIN_PASSWORD || 'Admin2026!';
-    const user = process.env.ADMIN_USER || 'arturo';
-    await upsertUser({ username: user, name: 'Admin', role: 'admin', passwordHash: bcrypt.hashSync(pass, 10) });
-    console.log(`\n🔐 Admin creado: ${user} / ${pass}\n`);
+    // Seed all known accounts (preserves passwords and webhook keys)
+    for (const u of SEED_USERS) {
+      await upsertUser(u);
+    }
+    console.log(`\n✅ ${SEED_USERS.length} cuentas migradas a PostgreSQL\n`);
   }
 }
 
