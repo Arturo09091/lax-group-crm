@@ -1980,8 +1980,8 @@ function App() {
         </div>
 
       <main className="flex-1 overflow-y-auto bg-slate-50">
-        {view === 'admin'     && <AdminView showToast={showToast} />
-        {view === 'meta-capi' && isAdmin && <MetaCapiView toast={toast} />}}
+        {view === 'admin'     && <AdminView showToast={showToast} />}
+        {view === 'meta-capi' && isAdmin && <MetaCapiView toast={toast} />}
         {view === 'dashboard' && !isAdmin && (
           <Dashboard {...commonProps}
             onOpenNew={() => { setView('leads'); setModal(null); }}
