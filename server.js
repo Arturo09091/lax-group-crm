@@ -38,6 +38,8 @@ if (!pool) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Middleware ────────────────────────────────────────────────────
 
+app.set('trust proxy', 1); // Railway terminates TLS at the proxy
+
 if (!process.env.SESSION_SECRET) console.warn('⚠️  SESSION_SECRET no configurado — configuralo en Railway');
 
 app.use(express.json({ limit: '50kb' }));
@@ -48,9 +50,9 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     maxAge:   7 * 24 * 60 * 60 * 1000,
-    httpOnly: true,                                        // no accesible por JS del cliente
-    secure:   process.env.NODE_ENV === 'production',      // solo HTTPS en prod
-    sameSite: 'lax',                                      // protege contra CSRF
+    httpOnly: true,
+    secure:   'auto',  // sets Secure flag only when request arrives via HTTPS
+    sameSite: 'lax',
   },
 }));
 
