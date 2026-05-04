@@ -1340,7 +1340,8 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
   ).length;
 
   const nav = isAdmin
-    ? [{ id: 'admin', label: 'Clientes', icon: '⚙️' }]
+    ? [{ id: 'admin', label: 'Clientes', icon: '⚙️' },
+        { id: 'meta-capi', label: 'API Conversiones Meta', icon: '📡' }]
     : [
         { id: 'dashboard',  label: 'Dashboard',     icon: '🏠' },
         { id: 'leads',      label: 'Leads',          icon: '👥' },
@@ -1668,6 +1669,142 @@ function AdminView({ showToast }) {
 
 /* ═══════════════════════════ APP ════════════════════════════════ */
 
+
+// ── Meta Conversions API View ────────────────────────────────────
+const META_EVENTS = [
+  { id: 'Lead', label: 'Lead' },
+  { id: 'Schedule', label: 'Schedule (Cita)' },
+  { id: 'Purchase', label: 'Purchase (Compra)' },
+  { id: 'CompleteRegistration', label: 'CompleteRegistration' },
+  { id: 'Contact', label: 'Contact' },
+  { id: 'InitiateCheckout', label: 'InitiateCheckout' },
+  { id: 'AddToCart', label: 'AddToCart' },
+  { id: 'ViewContent', label: 'ViewContent' },
+  { id: 'Search', label: 'Search' },
+  { id: 'Subscribe', label: 'Subscribe' },
+  { id: 'SubmitApplication', label: 'SubmitApplication' },
+  { id: 'FindLocation', label: 'FindLocation' },
+  { id: 'CustomizeProduct', label: 'CustomizeProduct' },
+  { id: 'AddPaymentInfo', label: 'AddPaymentInfo' },
+  { id: 'StartTrial', label: 'StartTrial' },
+];
+
+const PIPELINE_STAGES_CAPI = [
+  { id: 'new', label: 'Nuevo Lead' },
+  { id: 'contacted', label: 'Contactado' },
+  { id: 'qualified', label: 'Cualificado' },
+  { id: 'proposal', label: 'Propuesta' },
+  { id: 'negotiation', label: 'Negociación' },
+  { id: 'won', label: 'Ganado / Cliente' },
+  { id: 'lost', label: 'Perdido' },
+];
+
+function MetaCapiView({ toast }) {
+  const [clients, setClients] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [pixelForms, setPixelForms] = React.useState({});
+  const [saving, setSaving] = React.useState({});
+  const [testFiring, setTestFiring] = React.useState({});
+  React.useEffect(() => { loadAll(); }, []);
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const r = await fetch('/admin/meta-config');
+      const d = await r.json();
+      setClients(d);
+      const forms = {};
+      d.forEach(c => { forms[c.username] = { pixelId: c.pixelConfig?.pixelId||'', accessToken: c.pixelConfig?.accessToken||'', testCode: c.pixelConfig?.testCode||'' }; });
+      setPixelForms(forms);
+    } catch { toast&&toast('Error cargando', 'error'); }
+    setLoading(false);
+  }
+  async function savePixel(u) {
+    setSaving(s=>({...s,[u]:true}));
+    try {
+      const f=pixelForms[u]||{};
+      const r=await fetch('/admin/meta-config/'+u+'/pixel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pixelId:f.pixelId,accessToken:f.accessToken,testCode:f.testCode})});
+      const d=await r.json();
+      if(d.ok){toast&&toast('✅ Pixel guardado','success');loadAll();}else toast&&toast(d.error||'Error','error');
+    } catch { toast&&toast('Error guardando','error'); }
+    setSaving(s=>({...s,[u]:false}));
+  }
+  async function saveRule(u,sid,ev,en) {
+    try {
+      const r=await fetch('/admin/meta-config/'+u+'/rule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stageId:sid,metaEvent:ev,enabled:en})});
+      const d=await r.json();
+      if(d.ok){toast&&toast('✅ Regla guardada','success');loadAll();}else toast&&toast(d.error||'Error','error');
+    } catch { toast&&toast('Error','error'); }
+  }
+  async function delRule(u,sid) {
+    try { await fetch('/admin/meta-config/'+u+'/rule/'+sid,{method:'DELETE'}); toast&&toast('Eliminada','success'); loadAll(); } catch {}
+  }
+  async function testEv(u,ev) {
+    const k=u+'_'+ev; setTestFiring(t=>({...t,[k]:true}));
+    try {
+      const r=await fetch('/admin/meta-config/'+u+'/test-fire',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventName:ev})});
+      const d=await r.json();
+      if(d.ok) toast&&toast('📡 Evento enviado','success');
+      else toast&&toast('Error: '+(d.result?.error?.message||d.error||'?'),'error');
+    } catch { toast&&toast('Error','error'); }
+    setTestFiring(t=>({...t,[k]:false}));
+  }
+  const getRule=(rules,sid)=>rules?.find(r=>r.stageId===sid);
+  if(loading) return React.createElement('div',{className:'p-8 text-center text-gray-400'},'🔄 Cargando...');
+  const E=React.createElement;
+  return E('div',{className:'p-4 md:p-6'},
+    E('div',{className:'mb-5'},
+      E('h1',{className:'text-2xl font-bold text-white'},'\uD83D\uDCE1 API de Conversiones Meta'),
+      E('p',{className:'text-gray-400 mt-1 text-sm'},'Configura el Pixel de Meta y asigna eventos a etapas del pipeline. Cuando un lead llegue a esa etapa se dispara el evento automáticamente.')
+    ),
+    E('div',{className:'flex gap-4 pb-6',style:{overflowX:'auto',minHeight:'60vh'}},
+      clients.length===0
+        ? E('div',{className:'text-gray-500 p-8'},'No hay clientes creados.')
+        : clients.map(c=>E('div',{key:c.username,className:'bg-gray-800 rounded-xl border border-gray-700 flex flex-col',style:{minWidth:'300px',maxWidth:'340px',flexShrink:0}},
+          E('div',{className:'bg-gray-700 rounded-t-xl p-3 border-b border-gray-600 flex items-center gap-2'},
+            E('div',{className:'w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0',style:{background:'#6366f1'}},c.name[0].toUpperCase()),
+            E('div',{className:'flex-1 min-w-0'},
+              E('div',{className:'font-semibold text-white text-sm truncate'},c.name),
+              E('div',{className:'text-xs text-gray-400'},'@'+c.username)
+            ),
+            E('span',{className:'text-xs px-2 py-0.5 rounded-full flex-shrink-0 '+(c.pixelConfig?.pixelId?'bg-green-900 text-green-300':'bg-gray-600 text-gray-400')},
+              c.pixelConfig?.pixelId?'✅ Pixel':'Sin pixel')
+          ),
+          E('div',{className:'p-3 flex flex-col gap-4 flex-1 overflow-y-auto'},
+            E('div',null,
+              E('h3',{className:'text-xs font-bold text-gray-400 uppercase tracking-wide mb-2'},'📌 Pixel & Token'),
+              E('input',{className:'w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 mb-1.5',placeholder:'Pixel ID',value:pixelForms[c.username]?.pixelId||'',onChange:e=>setPixelForms(f=>({...f,[c.username]:{...f[c.username],pixelId:e.target.value}}))}),
+              E('input',{className:'w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 mb-1.5',placeholder:'Access Token (EAAG...)',type:'password',value:pixelForms[c.username]?.accessToken||'',onChange:e=>setPixelForms(f=>({...f,[c.username]:{...f[c.username],accessToken:e.target.value}}))}),
+              E('input',{className:'w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 mb-2',placeholder:'Test Event Code (opcional)',value:pixelForms[c.username]?.testCode||'',onChange:e=>setPixelForms(f=>({...f,[c.username]:{...f[c.username],testCode:e.target.value}}))}),
+              E('button',{className:'w-full py-1.5 rounded text-xs font-semibold '+(saving[c.username]?'bg-gray-600 text-gray-400 cursor-not-allowed':'bg-indigo-600 hover:bg-indigo-700 text-white'),disabled:saving[c.username],onClick:()=>savePixel(c.username)},saving[c.username]?'Guardando...':'💾 Guardar Pixel')
+            ),
+            E('div',null,
+              E('h3',{className:'text-xs font-bold text-gray-400 uppercase tracking-wide mb-2'},'🔀 Etapa → Evento Meta'),
+              E('div',{className:'space-y-1.5'},
+                PIPELINE_STAGES_CAPI.map(st=>{
+                  const rule=getRule(c.stageRules,st.id);
+                  return E('div',{key:st.id,className:'bg-gray-700 rounded p-2'},
+                    E('div',{className:'flex items-center gap-1 mb-1'},
+                      E('span',{className:'text-xs text-gray-300 flex-1 truncate font-medium'},st.label),
+                      rule&&E('button',{className:'text-xs text-red-500 hover:text-red-400 px-1',onClick:()=>delRule(c.username,st.id)},'✕')
+                    ),
+                    E('div',{className:'flex gap-1 items-center'},
+                      E('select',{className:'flex-1 bg-gray-600 border border-gray-500 rounded px-1.5 py-1 text-xs text-white',value:rule?.metaEvent||'',onChange:e=>{if(e.target.value)saveRule(c.username,st.id,e.target.value,rule?rule.enabled:true);}},
+                        E('option',{value:''},'-- Sin evento --'),
+                        META_EVENTS.map(ev=>E('option',{key:ev.id,value:ev.id},ev.label))
+                      ),
+                      rule&&E('button',{className:'text-xs px-1.5 py-1 rounded font-semibold '+(rule.enabled?'bg-green-700 text-green-200':'bg-gray-600 text-gray-400'),onClick:()=>saveRule(c.username,st.id,rule.metaEvent,!rule.enabled)},rule.enabled?'ON':'OFF')
+                    ),
+                    rule?.metaEvent&&E('button',{className:'mt-1 w-full text-xs py-0.5 rounded bg-gray-600 hover:bg-gray-500 text-gray-300 disabled:opacity-50',disabled:testFiring[c.username+'_'+rule.metaEvent],onClick:()=>testEv(c.username,rule.metaEvent)},testFiring[c.username+'_'+rule.metaEvent]?'Enviando...':'🧪 Test '+rule.metaEvent)
+                  );
+                })
+              )
+            )
+          )
+        ))
+    )
+  );
+}
+
 function App() {
   const [leads,      setLeads]      = useState(loadLeads);
   const [view,       setView]       = useState('dashboard');
@@ -1843,7 +1980,8 @@ function App() {
         </div>
 
       <main className="flex-1 overflow-y-auto bg-slate-50">
-        {view === 'admin'     && <AdminView showToast={showToast} />}
+        {view === 'admin'     && <AdminView showToast={showToast} />
+        {view === 'meta-capi' && isAdmin && <MetaCapiView toast={toast} />}}
         {view === 'dashboard' && !isAdmin && (
           <Dashboard {...commonProps}
             onOpenNew={() => { setView('leads'); setModal(null); }}
