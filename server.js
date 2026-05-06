@@ -75,6 +75,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS pixel_id TEXT`).catch(()=>{});
   await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS access_token TEXT`).catch(()=>{});
   await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS test_code TEXT`).catch(()=>{});
+  // Ensure unique constraint on username for ON CONFLICT to work
+  await pool.query(`ALTER TABLE meta_pixel_config ADD CONSTRAINT meta_pixel_config_username_unique UNIQUE (username)`).catch(()=>{});
       // Stage → Meta event mapping per client
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_stage_rules (
@@ -201,9 +203,10 @@ async function getMetaPixelConfig(username) {
 }
 async function upsertMetaPixelConfig(username, pixelId, accessToken, testCode) {
       if (pool) {
+              // Use DELETE + INSERT as safe upsert fallback
+              await pool.query('DELETE FROM meta_pixel_config WHERE username=$1', [username]);
               await pool.query(
-                        `INSERT INTO meta_pixel_config (username, pixel_id, access_token, test_code) VALUES ($1,$2,$3,$4)
-                               ON CONFLICT (username) DO UPDATE SET pixel_id=$2, access_token=$3, test_code=$4`,
+                        'INSERT INTO meta_pixel_config (username, pixel_id, access_token, test_code) VALUES ($1,$2,$3,$4)',
                         [username, pixelId, accessToken, testCode || null]
                       );
       }
