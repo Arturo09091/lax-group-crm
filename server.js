@@ -78,6 +78,10 @@ async function initDB() {
   await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS test_code TEXT`).catch(()=>{});
   // Ensure unique constraint on username for ON CONFLICT to work
   await pool.query(`ALTER TABLE meta_pixel_config ADD CONSTRAINT meta_pixel_config_username_unique UNIQUE (username)`).catch(()=>{});
+  // Fix: make 'stage' column nullable if it exists (legacy schema issue)
+  await pool.query(`ALTER TABLE meta_pixel_config ALTER COLUMN stage DROP NOT NULL`).catch(()=>{});
+  // Fix: remove legacy 'stage' column if it exists 
+  await pool.query(`ALTER TABLE meta_pixel_config DROP COLUMN IF EXISTS stage`).catch(()=>{});
       // Stage → Meta event mapping per client
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_stage_rules (
