@@ -140,6 +140,7 @@ const cacheLeads = leads => { try { localStorage.setItem('lf_leads', JSON.string
 const api = {
   getLeads:    ()     => fetch('/api/leads').then(r => r.json()),
   upsertLead:  lead   => fetch('/api/leads', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(lead) }).then(r => r.json()),
+  updateLead:  lead   => fetch(`/api/leads/${lead.id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(lead) }).then(r => r.json()),
   deleteLead:  id     => fetch(`/api/leads/${id}`, { method:'DELETE' }).then(r => r.json()),
 };
 
@@ -1692,10 +1693,9 @@ const META_EVENTS = [
 const PIPELINE_STAGES_CAPI = [
   { id: 'new', label: 'Nuevo Lead' },
   { id: 'contacted', label: 'Contactado' },
-  { id: 'qualified', label: 'Cualificado' },
-  { id: 'proposal', label: 'Propuesta' },
-  { id: 'negotiation', label: 'Negociación' },
-  { id: 'won', label: 'Ganado / Cliente' },
+  { id: 'following', label: 'En Seguimiento' },
+  { id: 'proposal', label: 'Propuesta Enviada' },
+  { id: 'converted', label: 'Convertido' },
   { id: 'lost', label: 'Perdido' },
 ];
 
@@ -1875,7 +1875,7 @@ function App() {
     setLeads(updated);
     cacheLeads(updated);
     const lead = updated.find(l => l.id === id);
-    try { if (lead) await api.upsertLead(lead); } catch {}
+    try { if (lead) await api.updateLead(lead); } catch {}
   };
 
   const handleImport = async rows => {
