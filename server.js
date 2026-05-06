@@ -64,6 +64,8 @@ async function initDB() {
                           )
                             `);
       // Meta Conversions API config per client
+  // Drop and recreate meta_pixel_config to ensure clean schema
+  await pool.query(`DROP TABLE IF EXISTS meta_pixel_config`).catch(()=>{});
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_pixel_config (
             username     TEXT PRIMARY KEY,
@@ -72,16 +74,6 @@ async function initDB() {
                               test_code    TEXT
                                   )
                                     `);
-      // Ensure meta_pixel_config columns exist (migration for existing DBs)
-  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS pixel_id TEXT`).catch(()=>{});
-  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS access_token TEXT`).catch(()=>{});
-  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS test_code TEXT`).catch(()=>{});
-  // Ensure unique constraint on username for ON CONFLICT to work
-  await pool.query(`ALTER TABLE meta_pixel_config ADD CONSTRAINT meta_pixel_config_username_unique UNIQUE (username)`).catch(()=>{});
-  // Fix: make 'stage' column nullable if it exists (legacy schema issue)
-  await pool.query(`ALTER TABLE meta_pixel_config ALTER COLUMN stage DROP NOT NULL`).catch(()=>{});
-  // Fix: remove legacy 'stage' column if it exists 
-  await pool.query(`ALTER TABLE meta_pixel_config DROP COLUMN IF EXISTS stage`).catch(()=>{});
       // Stage → Meta event mapping per client
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_stage_rules (
