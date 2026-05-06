@@ -71,6 +71,10 @@ async function initDB() {
                               test_code    TEXT
                                   )
                                     `);
+      // Ensure meta_pixel_config columns exist (migration for existing DBs)
+  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS pixel_id TEXT`).catch(()=>{});
+  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS access_token TEXT`).catch(()=>{});
+  await pool.query(`ALTER TABLE meta_pixel_config ADD COLUMN IF NOT EXISTS test_code TEXT`).catch(()=>{});
       // Stage → Meta event mapping per client
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_stage_rules (
@@ -468,8 +472,19 @@ app.post('/admin/meta-config/:username/test-fire', requireAdmin, async (req, res
 app.get('/api/leads', async (req, res) => res.json(await readLeads(req.session.username)));
 
 app.post('/api/leads', async (req, res) => {
+      const username = req.session.username;
       const lead = { ...req.body, id: req.body.id || uid() };
-      await upsertLead(req.session.username, lead);
+      const existing = (await readLeads(username)).find(l => l.id === lead.id);
+      const previousStage = existing ? existing.stage : null;
+      await upsertLead(username, lead);
+      if (lead.stage && lead.stage !== previousStage) {
+          const rules = await getMetaStageRules(username);
+          const rule = rules.find(r => r.stageId === lead.stage && r.enabled);
+          if (rule) {
+              const cfg = await getMetaPixelConfig(username);
+              fireMetaEvent(cfg, rule.metaEvent, lead).catch(e => console.error('Meta CAPI fire error:', e));
+          }
+      }
       res.json(lead);
 });
 
