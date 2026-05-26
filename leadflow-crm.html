@@ -13,7 +13,7 @@
     @keyframes slideIn { from{opacity:0;transform:translateX(120%)} to{opacity:1;transform:translateX(0)} }
     .anim-fade  { animation: fadeIn  .2s ease; }
     .anim-toast { animation: slideIn .25s ease; }
-    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar { width:5px; height:5px; }h
     ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
     ::-webkit-scrollbar-track { background:transparent; }
     .drag-active { opacity:.45 !important; transform:scale(.97); }
@@ -771,7 +771,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
 
 /* ═══════════════════════════ PIPELINE ═══════════════════════════ */
 
-function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) , stageLabels = [], onSaveStageLabels }) {}
+function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast, stageLabels = [], onSaveStageLabels }) {
     const getSL = (id) => { const f = stageLabels.find(s => s.id === id); return f ? f.label : (STAGE[id] ? STAGE[id].label : id); };  
 const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
@@ -1813,7 +1813,7 @@ function MetaCapiView({ toast }) {
             E('div',null,
               E('h3',{className:'text-xs font-bold text-gray-400 uppercase tracking-wide mb-2'},'🔀 Etapa → Evento Meta'),
               E('div',{className:'space-y-1.5'},
-                                            (c.stageLabels && c.stageLabels.length ? c.stageLabels : PIPELINE_STAGES_CAPI).map(st=>{})
+                                            (c.stageLabels && c.stageLabels.length ? c.stageLabels : PIPELINE_STAGES_CAPI).map(st=>{
                   const rule=getRule(c.stageRules,st.id);
                   return E('div',{key:st.id,className:'bg-gray-700 rounded p-2'},
                     E('div',{className:'flex items-center gap-1 mb-1'},
