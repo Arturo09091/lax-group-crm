@@ -1,4 +1,4 @@
-// v3 - pixel config fix
+// v3 - pixel config fix + white screen fix
 const express = require('express');
 const session = require('express-session');
 const bcrypt  = require('bcryptjs');
