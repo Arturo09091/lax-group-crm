@@ -771,11 +771,14 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
 
 /* ═══════════════════════════ PIPELINE ═══════════════════════════ */
 
-function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
-  const [dragging,  setDragging]  = useState(null);
+function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) , stageLabels = [], onSaveStageLabels }) {}
+    const getSL = (id) => { const f = stageLabels.find(s => s.id === id); return f ? f.label : (STAGE[id] ? STAGE[id].label : id); };  
+const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
   const [filter,    setFilter]    = useState('');
   const [movingId,  setMovingId]  = useState(null); // id del lead con picker de stage abierto
+          const [showEditStages, setShowEditStages] = useState(false);
+                  const [editLabels, setEditLabels] = useState([]);
 
   // Touch drag refs
   const touchLead   = useRef(null);
@@ -802,6 +805,10 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm">
             ＋ Nuevo Lead
           </button>
+                          <button onClick={() => { setEditLabels(stageLabels.map(s => ({...s}))); setShowEditStages(true); }}
+                                              className="border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
+                                                                  ✏️ Personalizar etapas
+                                                                                  </button>
         </div>
       </div>
 
@@ -817,7 +824,7 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
                 e.preventDefault();
                 if (dragging && dragging.stage !== stage.id) {
                   onStageChange(dragging.id, stage.id);
-                  showToast(`${dragging.name} → ${stage.label}`, 'success');
+                              showToast(`${dragging.name} → ${getSL(stage.id)}`, 'success');
                 }
                 setDragging(null); setDragOver(null);
               }}
@@ -829,7 +836,7 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
               {/* Column header */}
               <div className="p-3 flex items-center justify-between">
                 <div className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg ${stage.pill} border`}>
-                  {stage.label}
+                                  {getSL(stage.id)}
                 </div>
                 <span className="bg-white border text-xs font-bold px-2 py-0.5 rounded-full text-slate-600">
                   {stageLeads.length}
@@ -961,6 +968,32 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
         })}
       </div>
     </div>
+                {/* ── Edit Stage Labels Modal ── */}
+                            {showEditStages && (
+                                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                                                                <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                                                                                        <h3 className="text-white font-bold text-lg mb-4">Personalizar etapas del pipeline</h3>
+                                                                                                                <div className="space-y-2">
+                                                                                                                                            {editLabels.map((s, i) => (
+                                                                                                                                                                            <div key={s.id} className="flex items-center gap-2">
+                                                                                                                                                                                                                <span className="text-slate-400 text-xs w-20 truncate">{STAGE[s.id] ? STAGE[s.id].label : s.id}</span>
+                                                                                                                                                                                                                                                    <input
+                                                                                                                                                                                                                                                                                            value={s.label}
+                                                                                                                                                                                                                                                                                                                                    onChange={e => { const nl = [...editLabels]; nl[i] = {...nl[i], label: e.target.value}; setEditLabels(nl); }}
+                                                                                                                                                                                                                                                                                                                                                                            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                                                                                                                                                                                                                                                                                                                                                                                                />
+                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ))}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            <div className="flex gap-2 mt-5">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <button onClick={() => setShowEditStages(false)}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        className="flex-1 border border-slate-600 text-slate-300 py-2 rounded-xl text-sm">Cancelar</button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <button onClick={() => { onSaveStageLabels && onSaveStageLabels(editLabels); setShowEditStages(false); }}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-xl text-sm font-semibold">Guardar</button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            )}
   );
 }
 
@@ -1780,7 +1813,7 @@ function MetaCapiView({ toast }) {
             E('div',null,
               E('h3',{className:'text-xs font-bold text-gray-400 uppercase tracking-wide mb-2'},'🔀 Etapa → Evento Meta'),
               E('div',{className:'space-y-1.5'},
-                PIPELINE_STAGES_CAPI.map(st=>{
+                                            (c.stageLabels && c.stageLabels.length ? c.stageLabels : PIPELINE_STAGES_CAPI).map(st=>{})
                   const rule=getRule(c.stageRules,st.id);
                   return E('div',{key:st.id,className:'bg-gray-700 rounded p-2'},
                     E('div',{className:'flex items-center gap-1 mb-1'},
@@ -1815,6 +1848,7 @@ function App() {
   const [me,         setMe]         = useState(null);
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [appReady,   setAppReady]   = useState(false);
+          const [stageLabels,   setStageLabels]  = useState(STAGES.map(s => ({ id: s.id, label: s.label })));
 
   const showToast = (msg, type = 'info') => setToast({ msg, type, id: Date.now() });
 
@@ -1828,6 +1862,35 @@ function App() {
     }).catch(() => {}).finally(() => setAppReady(true));
   }, []);
 
+          // Load custom pipeline stage labels for client
+                  useEffect(() => {
+                              if (me && me.role === 'client') {
+                                              fetch('/api/pipeline-stages').then(r => r.json()).then(data => {
+                                                                  if (Array.isArray(data)) setStageLabels(data);
+                                                                                  }).catch(() => {});
+                                                                                              }
+                                                                                                      }, [me]);
+
+                                                                                                              // Helper: get label for a stage id
+                                                                                                                      const getStageLabel = (id) => {
+                                                                                                                                  const found = stageLabels.find(s => s.id === id);
+                                                                                                                                              return found ? found.label : (STAGE[id] ? STAGE[id].label : id);
+                                                                                                                                                      };
+
+                                                                                                                                                              // Save custom stage labels (client)
+                                                                                                                                                                      const saveStageLabels = async (newLabels) => {
+                                                                                                                                                                                  try {
+                                                                                                                                                                                                  const r = await fetch('/api/pipeline-stages', {
+                                                                                                                                                                                                                      method: 'PUT',
+                                                                                                                                                                                                                                          headers: { 'Content-Type': 'application/json' },
+                                                                                                                                                                                                                                                              body: JSON.stringify(newLabels)
+                                                                                                                                                                                                                                                                              });
+                                                                                                                                                                                                                                                                                              if (r.ok) {
+                                                                                                                                                                                                                                                                                                                  setStageLabels(newLabels);
+                                                                                                                                                                                                                                                                                                                                      showToast('Etapas actualizadas', 'success');
+                                                                                                                                                                                                                                                                                                                                                      }
+                                                                                                                                                                                                                                                                                                                                                                  } catch(e) { showToast('Error al guardar', 'error'); }
+                                                                                                                                                                                                                                                                                                                                                                          };
   // Pull leads from server (called on mount + every 30s to catch Make webhook leads)
   const syncFromServer = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -1988,7 +2051,7 @@ function App() {
             goTo={setView} />
         )}
         {view === 'leads'     && !isAdmin && <LeadsView     {...commonProps} />}
-        {view === 'pipeline'  && !isAdmin && <PipelineView  {...commonProps} />}
+                    {view === 'pipeline'  && !isAdmin && <PipelineView    {...commonProps} stageLabels={stageLabels} onSaveStageLabels={saveStageLabels} />}
         {view === 'reports'   && !isAdmin && <ReportsView   leads={leads} />}
         {view === 'reminders' && !isAdmin && <RemindersView {...commonProps} />}
       </main>

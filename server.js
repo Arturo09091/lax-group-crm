@@ -85,6 +85,15 @@ async function initDB() {
                                           UNIQUE(username, stage_id)
                                               )
                                                 `);
+                                                    // Pipeline stage labels per client (custom column headers)
+                                                        await pool.query(`
+                                                                CREATE TABLE IF NOT EXISTS pipeline_stage_labels (
+                                                                            username   TEXT NOT NULL,
+                                                                                        stage_id   TEXT NOT NULL,
+                                                                                                    label      TEXT NOT NULL,
+                                                                                                                PRIMARY KEY (username, stage_id)
+                                                                                                                        )
+                                                                                                                            `);
       // Migrate from auth.json
   const { rows } = await pool.query('SELECT COUNT(*) as c FROM crm_users');
       if (rows[0].c === '0' && fs.existsSync(AUTH_FILE)) {
@@ -136,6 +145,7 @@ async function deleteUser(username) {
               await pool.query('DELETE FROM leads WHERE username=$1', [username]);
               await pool.query('DELETE FROM meta_pixel_config WHERE username=$1', [username]);
               await pool.query('DELETE FROM meta_stage_rules WHERE username=$1', [username]);
+                          await pool.query('DELETE FROM pipeline_stage_labels WHERE username=$1', [username]);
               return;
       }
       const authData = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
@@ -229,6 +239,44 @@ async function upsertMetaStageRule(username, stageId, metaEvent, enabled) {
 async function deleteMetaStageRule(username, stageId) {
       if (pool) { await pool.query('DELETE FROM meta_stage_rules WHERE username=$1 AND stage_id=$2', [username, stageId]); }
 }
+
+// -- Storage: Pipeline Stage Labels ─────────────────────────────────────────
+const DEFAULT_STAGE_LABELS = [
+    { id: 'new',       label: 'Nuevo Lead'       },
+        { id: 'contacted', label: 'Contactado'       },
+            { id: 'following', label: 'En Seguimiento'   },
+                { id: 'proposal',  label: 'Propuesta Enviada'},
+                    { id: 'converted', label: 'Convertido'       },
+                        { id: 'lost',      label: 'Perdido'          },
+                        ];
+                        async function getPipelineStageLabels(username) {
+                            if (pool) {
+                                    const { rows } = await pool.query(
+                                                'SELECT stage_id, label FROM pipeline_stage_labels WHERE username=$1',
+                                                            [username]
+                                                                    );
+                                                                            if (rows.length > 0) {
+                                                                                        // merge defaults with saved
+                                                                                                    return DEFAULT_STAGE_LABELS.map(d => {
+                                                                                                                    const saved = rows.find(r => r.stage_id === d.id);
+                                                                                                                                    return { id: d.id, label: saved ? saved.label : d.label };
+                                                                                                                                                });
+                                                                                                                                                        }
+                                                                                                                                                            }
+                                                                                                                                                                return DEFAULT_STAGE_LABELS.map(d => ({ ...d }));
+                                                                                                                                                                }
+                                                                                                                                                                async function savePipelineStageLabels(username, stages) {
+                                                                                                                                                                    // stages = [{id, label}, ...]
+                                                                                                                                                                        if (pool) {
+                                                                                                                                                                                for (const s of stages) {
+                                                                                                                                                                                            await pool.query(
+                                                                                                                                                                                                            `INSERT INTO pipeline_stage_labels (username, stage_id, label) VALUES ($1,$2,$3)
+                                                                                                                                                                                                                             ON CONFLICT (username, stage_id) DO UPDATE SET label=$3`,
+                                                                                                                                                                                                                                             [username, s.id, s.label]
+                                                                                                                                                                                                                                                         );
+                                                                                                                                                                                                                                                                 }
+                                                                                                                                                                                                                                                                     }
+                                                                                                                                                                                                                                                                     }
 
 // ── Meta Conversions API: fire event ────────────────────────────
 function hashSHA256(value) {
@@ -422,7 +470,8 @@ app.get('/admin/meta-config', requireAdmin, async (req, res) => {
       const result = await Promise.all(clients.map(async u => {
               const cfg = await getMetaPixelConfig(u.username);
               const rules = await getMetaStageRules(u.username);
-              return { username: u.username, name: u.name, pixelConfig: cfg, stageRules: rules };
+                      const stageLabels = await getPipelineStageLabels(u.username);
+              return { username: u.username, name: u.name, pixelConfig: cfg, stageRules: rules , stageLabels };
       }));
       res.json(result);
 });
@@ -431,7 +480,8 @@ app.get('/admin/meta-config', requireAdmin, async (req, res) => {
 app.get('/admin/meta-config/:username', requireAdmin, async (req, res) => {
       const cfg = await getMetaPixelConfig(req.params.username);
       const rules = await getMetaStageRules(req.params.username);
-      res.json({ pixelConfig: cfg, stageRules: rules });
+              const stageLabels = await getPipelineStageLabels(req.params.username);
+      res.json({ pixelConfig: cfg, stageRules: rules , stageLabels });
 });
 
 // Save pixel config for a client
@@ -467,6 +517,43 @@ app.post('/admin/meta-config/:username/test-fire', requireAdmin, async (req, res
       const result = await fireMetaEvent(cfg, eventName, testLead || { id: 'test', name: 'Test', stage: 'test', value: 0 });
       res.json(result);
 });
+
+// -- Pipeline Stages API (client: read & save custom column labels) ────────────
+// GET /api/pipeline-stages  → returns [{id, label}, ...]
+app.get('/api/pipeline-stages', async (req, res) => {
+    try {
+            const labels = await getPipelineStageLabels(req.session.username);
+                    res.json(labels);
+                        } catch (e) {
+                                console.error('pipeline-stages GET error:', e);
+                                        res.status(500).json({ error: 'Error interno' });
+                                            }
+                                            });
+
+                                            // PUT /api/pipeline-stages  body: [{id, label}, ...]
+                                            app.put('/api/pipeline-stages', async (req, res) => {
+                                                try {
+                                                        const stages = req.body;
+                                                                if (!Array.isArray(stages)) return res.status(400).json({ error: 'Array requerido' });
+                                                                        await savePipelineStageLabels(req.session.username, stages);
+                                                                                res.json({ ok: true });
+                                                                                    } catch (e) {
+                                                                                            console.error('pipeline-stages PUT error:', e);
+                                                                                                    res.status(500).json({ error: 'Error interno' });
+                                                                                                        }
+                                                                                                        });
+
+                                                                                                        // -- Admin: pipeline stages for all clients ────────────────────────────────────
+                                                                                                        // GET /admin/pipeline-stages/:username
+                                                                                                        app.get('/admin/pipeline-stages/:username', requireAdmin, async (req, res) => {
+                                                                                                            try {
+                                                                                                                    const labels = await getPipelineStageLabels(req.params.username);
+                                                                                                                            res.json(labels);
+                                                                                                                                } catch (e) {
+                                                                                                                                        res.status(500).json({ error: 'Error interno' });
+                                                                                                                                            }
+                                                                                                                                            });
+
 
 // ── Leads API ─────────────────────────────────────────────────────
 app.get('/api/leads', async (req, res) => res.json(await readLeads(req.session.username)));
