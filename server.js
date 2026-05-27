@@ -374,7 +374,7 @@ async function bootstrap() {
 }
 
 // ── Auth middleware ───────────────────────────────────────────────
-const PUBLIC = ['/login', '/auth/login'];
+const PUBLIC = ['/login', '/auth/login', '/logo.png', '/favicon.ico'];
 function requireAuth(req, res, next) {
       if (PUBLIC.includes(req.path)) return next();
       if (req.path.startsWith('/api/webhook/')) return next();
