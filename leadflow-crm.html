@@ -792,6 +792,7 @@ const [dragging,  setDragging]  = useState(null);
   const byStage = Object.fromEntries(STAGES.map(s => [s.id, filtered.filter(l => l.stage === s.id)]));
 
   return (
+    <>
     <div className="p-4 sm:p-6 anim-fade">
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
@@ -994,6 +995,7 @@ const [dragging,  setDragging]  = useState(null);
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </div>
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </div>
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             )}
+  </>
   );
 }
 
