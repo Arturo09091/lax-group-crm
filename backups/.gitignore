@@ -1,0 +1,7 @@
+# Never commit dump artifacts or local creds
+*.sql
+*.sql.gz
+*.env
+*.env.gpg
+.env
+.env.local
