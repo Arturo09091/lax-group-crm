@@ -52,7 +52,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 railway ssh --service Database \
-  "pg_dump -U leadflow -d leadflow --no-owner --no-acl --clean --if-exists --format=plain" \
+  'PGPASSWORD=$POSTGRES_PASSWORD pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-acl --clean --if-exists --format=plain' \
   | gzip -9 > "$DUMP_FILE"
 
 SIZE=$(du -h "$DUMP_FILE" | awk '{print $1}')

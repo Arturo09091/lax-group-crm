@@ -76,7 +76,8 @@ read -r -p "Are you really sure? Type the backup prefix '$QUERY' to confirm: " A
 echo ""
 echo "▸ Restoring (streaming through railway ssh)..."
 gunzip -c "$TMP/$MATCH" \
-  | railway ssh --service Database "psql -U leadflow -d leadflow -v ON_ERROR_STOP=1 --quiet"
+  | railway ssh --service Database \
+      'PGPASSWORD=$POSTGRES_PASSWORD psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 --quiet'
 
 echo ""
 echo "✅ Restore complete from $MATCH"
