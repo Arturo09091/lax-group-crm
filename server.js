@@ -426,7 +426,49 @@ app.post('/auth/change-password', async (req, res) => {
 });
 app.get('/api/me', (req, res) => {
       if (!req.session.authenticated) return res.status(401).json({ error: 'No autorizado' });
-      res.json({ username: req.session.username, name: req.session.name, role: req.session.role });
+      res.json({
+              username: req.session.username,
+              name: req.session.name,
+              role: req.session.role,
+              impersonatedBy: req.session.originalAdmin
+                      ? { username: req.session.originalAdmin.username, name: req.session.originalAdmin.name }
+                      : null,
+      });
+});
+
+// ── Admin: impersonation (ver como cliente sin cerrar sesión) ──
+app.post('/admin/impersonate/:username', async (req, res) => {
+      // Authoritative admin check: either current session is admin,
+      // or it's already an impersonation session whose ORIGINAL admin is admin.
+      const actingAdmin = req.session.originalAdmin || (req.session.role === 'admin' ? {
+              username: req.session.username, name: req.session.name, role: req.session.role,
+      } : null);
+      if (!actingAdmin || actingAdmin.role !== 'admin')
+              return res.status(403).json({ error: 'Solo administradores' });
+
+      const target = await findUser(req.params.username);
+      if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
+      if (target.role === 'admin')
+              return res.status(400).json({ error: 'No podés impersonar a otro admin' });
+      if (target.username === actingAdmin.username)
+              return res.status(400).json({ error: 'No podés impersonarte a vos mismo' });
+
+      req.session.originalAdmin = actingAdmin;
+      req.session.username = target.username;
+      req.session.name     = target.name;
+      req.session.role     = target.role;
+      res.json({ ok: true, viewingAs: { username: target.username, name: target.name } });
+});
+
+app.post('/admin/stop-impersonating', (req, res) => {
+      if (!req.session.originalAdmin)
+              return res.status(400).json({ error: 'No estás impersonando a nadie' });
+      const admin = req.session.originalAdmin;
+      req.session.username = admin.username;
+      req.session.name     = admin.name;
+      req.session.role     = admin.role;
+      delete req.session.originalAdmin;
+      res.json({ ok: true });
 });
 
 // ── Admin: users ─────────────────────────────────────────────────

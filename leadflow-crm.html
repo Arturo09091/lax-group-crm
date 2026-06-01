@@ -1667,6 +1667,19 @@ function AdminView({ showToast }) {
                         </button>
                       )}
                       {u.role !== 'admin' && (
+                        <button
+                          onClick={async () => {
+                            const r = await fetch(`/admin/impersonate/${u.username}`, { method: 'POST' });
+                            const d = await r.json();
+                            if (d.ok) window.location.href = '/';
+                            else showToast(d.error || 'No se pudo entrar como cliente', 'error');
+                          }}
+                          title={`Entrar como ${u.name}`}
+                          className="text-xs text-slate-500 hover:text-indigo-700 transition-colors px-2 py-1 rounded hover:bg-indigo-50 font-medium">
+                          👁 Ver como
+                        </button>
+                      )}
+                      {u.role !== 'admin' && (
                         <button onClick={() => handleDelete(u.username)} className="text-xs text-slate-300 hover:text-red-500 transition-colors px-2 py-1 rounded hover:bg-red-50">
                           Eliminar
                         </button>
@@ -1980,7 +1993,26 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex flex-col h-screen overflow-hidden">
+      {me?.impersonatedBy && (
+        <div className="no-print bg-amber-500 text-white px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0 shadow-md z-50">
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <span className="text-base flex-shrink-0">👁</span>
+            <span className="truncate">
+              Viendo como <strong>{me.name}</strong> · admin: <strong>{me.impersonatedBy.name}</strong>
+            </span>
+          </div>
+          <button
+            onClick={async () => {
+              await fetch('/admin/stop-impersonating', { method: 'POST' });
+              window.location.href = '/';
+            }}
+            className="bg-white text-amber-700 hover:bg-amber-50 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap shadow-sm">
+            ← Volver al admin
+          </button>
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
       <Sidebar view={view} goTo={setView} leads={leads} syncing={syncing} lastSync={lastSync} me={me}
         isOpen={menuOpen} onClose={() => setMenuOpen(false)} isMobileLayout={true} />
 
@@ -2049,6 +2081,7 @@ function App() {
         <Toast key={toast.id} msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />
       )}
       </div>{/* end flex-1 column */}
+      </div>{/* end sidebar+content row */}
     </div>
   );
 }
