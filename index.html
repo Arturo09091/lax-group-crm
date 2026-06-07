@@ -181,6 +181,11 @@
     }
     .img-frame:hover .img-bw { transform: scale(1.045); filter: grayscale(100%) contrast(1.12); }
 
+    /* Foto recortada: sin caja ni fondo — el blanco se funde con el beige de la sección */
+    .img-frame.is-cutout { border: none; background: transparent; overflow: visible; }
+    .img-frame.is-cutout .img-bw { object-fit: contain; mix-blend-mode: darken; }
+    .img-frame.is-cutout:hover .img-bw { transform: none; filter: grayscale(100%) contrast(1.02); }
+
     /* Placeholder editorial estilado en B&N (sustituible por <img>) */
     .img-ph {
       position: relative; width: 100%; height: 100%;
@@ -323,7 +328,7 @@
           <!-- Imagen al lado de la info -->
           <div class="lg:col-span-5 reveal">
             <!-- Foto real del negocio (alojada en postimg). La web la pasa a B&N automáticamente. -->
-            <div class="img-frame aspect-[4/3] lg:aspect-[3/4] w-full">
+            <div class="img-frame is-cutout aspect-[4/3] lg:aspect-[3/4] w-full">
               <img class="img-bw" src="https://i.postimg.cc/4xBmrcfd/%281%29.png" alt="Muchos paquetes de un negocio listos para enviar" loading="lazy" />
             </div>
           </div>
