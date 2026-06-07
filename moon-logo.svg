@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 290 80" width="290" height="80" role="img" aria-label="MOON" fill="none">
+  <title>MOON</title>
+  <!-- Monocromo: usa currentColor donde se incruste; por defecto tinta #141414.
+       Para fondo oscuro, recoloréalo a beige #E9E3D6. -->
+  <g fill="#141414">
+    <!-- Símbolo: luna creciente -->
+    <g transform="translate(11,17) scale(1.9)">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </g>
+    <!-- Wordmark -->
+    <text x="75" y="55" font-family="Fraunces, 'Cormorant Garamond', Georgia, serif"
+          font-size="46" font-weight="500" letter-spacing="7">MOON</text>
+  </g>
+</svg>
