@@ -425,8 +425,7 @@
 
           <!-- Formulario -->
           <div class="lg:col-span-7 reveal">
-            <!-- TODO: conectar endpoint / webhook → ver constante WEBHOOK_ENDPOINT en el <script> del final.
-                 El backend de este proyecto ya expone POST /api/webhook/:key (server.js). -->
+            <!-- Conectado al webhook de Make (ver WEBHOOK_ENDPOINT en el <script> del final). -->
             <form id="leadForm" novalidate class="space-y-8" aria-describedby="formNote">
 
               <div class="grid sm:grid-cols-2 gap-8">
@@ -596,10 +595,9 @@
     });
 
     /* ---------- Formulario: validación + envío vía webhook ---------- */
-    // TODO: sustituye TU_WEBHOOK_KEY por la clave real de tu webhook.
-    // Este proyecto ya expone el endpoint en server.js: POST /api/webhook/:key
-    // (acepta { name, phone, email, source, notes, ... } y crea el lead en el CRM).
-    var WEBHOOK_ENDPOINT = '/api/webhook/TU_WEBHOOK_KEY';
+    // Webhook de Make (Integromat). Se envía como form-urlencoded en modo no-cors
+    // para evitar problemas de CORS desde el navegador: los datos llegan siempre a Make.
+    var WEBHOOK_ENDPOINT = 'https://hook.eu2.make.com/4wr13tjtl9u9s2z9ikwckts79unsa6u9';
 
     var form = document.getElementById('leadForm');
     var submitBtn = document.getElementById('submitBtn');
@@ -619,13 +617,15 @@
         return;
       }
 
-      var data = {
-        name:  form.nombre.value.trim(),
-        phone: form.telefono.value.trim(),
-        email: form.email.value.trim(),
-        source: 'Landing — Diagnóstico',
-        notes: 'Empresa/Web: ' + form.empresa.value.trim() + '\nProblema: ' + form.problema.value.trim()
-      };
+      // Un campo por dato: fáciles de mapear en el escenario de Make
+      var data = new URLSearchParams();
+      data.append('nombre',   form.nombre.value.trim());
+      data.append('telefono', form.telefono.value.trim());
+      data.append('email',    form.email.value.trim());
+      data.append('empresa',  form.empresa.value.trim());
+      data.append('problema', form.problema.value.trim());
+      data.append('source',   'Landing — Diagnóstico');
+      data.append('fecha',    new Date().toISOString());
 
       var showSuccess = function () {
         form.reset();
@@ -643,18 +643,14 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Enviando…';
 
-      // Modo demo: si aún no has configurado el webhook, no llamamos al endpoint.
-      if (WEBHOOK_ENDPOINT.indexOf('TU_WEBHOOK_KEY') !== -1) {
-        setTimeout(showSuccess, 500);
-        return;
-      }
-
+      // mode:'no-cors' + form-urlencoded → petición "simple", sin preflight ni bloqueo CORS.
+      // La respuesta es opaca (no se puede leer), pero el envío llega a Make.
       fetch(WEBHOOK_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        mode: 'no-cors',
+        body: data
       })
-        .then(function (res) { if (res.ok) showSuccess(); else showError(); })
+        .then(showSuccess)
         .catch(showError);
     });
   })();
