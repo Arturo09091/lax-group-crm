@@ -57,6 +57,9 @@ async function initDB() {
                       role TEXT NOT NULL DEFAULT 'client', password_hash TEXT NOT NULL, webhook_key TEXT
                           )
                             `);
+      // Idempotent migration: track password version per user so sessions
+      // can be invalidated when the password changes.
+      await pool.query(`ALTER TABLE crm_users ADD COLUMN IF NOT EXISTS password_version INTEGER NOT NULL DEFAULT 1`);
       await pool.query(`
           CREATE TABLE IF NOT EXISTS leads (
                 id TEXT PRIMARY KEY, username TEXT NOT NULL,
@@ -112,7 +115,7 @@ async function initDB() {
 async function getUsers() {
       if (pool) {
               const { rows } = await pool.query('SELECT * FROM crm_users');
-              return rows.map(r => ({ username: r.username, name: r.name, role: r.role, passwordHash: r.password_hash, webhookKey: r.webhook_key }));
+              return rows.map(r => ({ username: r.username, name: r.name, role: r.role, passwordHash: r.password_hash, webhookKey: r.webhook_key, passwordVersion: r.password_version }));
       }
       try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')).users; } catch { return []; }
 }
@@ -121,9 +124,16 @@ async function findUser(username) {
               const { rows } = await pool.query('SELECT * FROM crm_users WHERE username=$1', [username]);
               if (!rows[0]) return null;
               const r = rows[0];
-              return { username: r.username, name: r.name, role: r.role, passwordHash: r.password_hash, webhookKey: r.webhook_key };
+              return { username: r.username, name: r.name, role: r.role, passwordHash: r.password_hash, webhookKey: r.webhook_key, passwordVersion: r.password_version };
       }
       try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')).users.find(u => u.username === username); } catch { return null; }
+}
+// Cheap lookup used by requireAuth on every request to verify the session
+// hasn't been invalidated by a password change. Returns null if user gone.
+async function getUserPasswordVersion(username) {
+      if (!pool) return 1; // file-based fallback has no versioning
+      const { rows } = await pool.query('SELECT password_version FROM crm_users WHERE username=$1', [username]);
+      return rows[0] ? rows[0].password_version : null;
 }
 async function upsertUser(user) {
       if (pool) {
@@ -139,6 +149,26 @@ async function upsertUser(user) {
       if (idx >= 0) authData.users[idx] = user; else authData.users.push(user);
       fs.writeFileSync(AUTH_FILE, JSON.stringify(authData, null, 2));
 }
+// Atomically updates the password hash AND bumps password_version.
+// Returns the new version number so callers (self-change) can sync their
+// own session and stay logged in on this device.
+async function changePassword(username, newPasswordHash) {
+      if (!pool) {
+              // file-based fallback: just write hash, no versioning
+              const u = await findUser(username);
+              if (!u) return null;
+              u.passwordHash = newPasswordHash;
+              await upsertUser(u);
+              return 1;
+      }
+      const { rows } = await pool.query(
+              `UPDATE crm_users SET password_hash=$2, password_version=password_version+1
+               WHERE username=$1 RETURNING password_version`,
+              [username, newPasswordHash]
+      );
+      return rows[0] ? rows[0].password_version : null;
+}
+
 async function deleteUser(username) {
       if (pool) {
               await pool.query('DELETE FROM crm_users WHERE username=$1', [username]);
@@ -375,13 +405,30 @@ async function bootstrap() {
 
 // ── Auth middleware ───────────────────────────────────────────────
 const PUBLIC = ['/login', '/auth/login', '/logo.png', '/favicon.ico'];
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
       if (PUBLIC.includes(req.path)) return next();
       if (req.path.startsWith('/api/webhook/')) return next();
       if (!req.session.authenticated) {
               if (req.path.startsWith('/api/') || req.path.startsWith('/admin/'))
                         return res.status(401).json({ error: 'No autorizado' });
               return res.redirect('/login');
+      }
+      // Validate session against current password_version in DB. If the
+      // password has been changed since this session was issued, kill it.
+      if (req.session.username && req.session.passwordVersion != null) {
+              try {
+                        const currentVersion = await getUserPasswordVersion(req.session.username);
+                        if (currentVersion == null || currentVersion !== req.session.passwordVersion) {
+                                  return req.session.destroy(() => {
+                                          if (req.path.startsWith('/api/') || req.path.startsWith('/admin/'))
+                                                  return res.status(401).json({ error: 'Sesión expirada — contraseña cambiada' });
+                                          res.redirect('/login');
+                                  });
+                        }
+              } catch (e) {
+                        // DB hiccup: don't lock people out, just continue
+                        console.warn('requireAuth: password_version check failed', e.message);
+              }
       }
       next();
 }
@@ -412,6 +459,7 @@ app.post('/auth/login', async (req, res) => {
       req.session.username = user.username;
       req.session.name     = user.name;
       req.session.role     = user.role;
+      req.session.passwordVersion = user.passwordVersion ?? 1;
       res.json({ ok: true, role: user.role, name: user.name });
 });
 app.get('/auth/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
@@ -420,8 +468,10 @@ app.post('/auth/change-password', async (req, res) => {
       const user = await findUser(req.session.username);
       if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash))
               return res.json({ ok: false, error: 'Contrase\u00F1a actual incorrecta' });
-      user.passwordHash = bcrypt.hashSync(newPassword, 10);
-      await upsertUser(user);
+      const newVersion = await changePassword(user.username, bcrypt.hashSync(newPassword, 10));
+      // Self-change: sync this session's version so we don't auto-logout
+      // here, but every OTHER device with the old version gets kicked out.
+      if (newVersion != null) req.session.passwordVersion = newVersion;
       res.json({ ok: true });
 });
 app.get('/api/me', (req, res) => {
@@ -442,6 +492,7 @@ app.post('/admin/impersonate/:username', async (req, res) => {
       // or it's already an impersonation session whose ORIGINAL admin is admin.
       const actingAdmin = req.session.originalAdmin || (req.session.role === 'admin' ? {
               username: req.session.username, name: req.session.name, role: req.session.role,
+              passwordVersion: req.session.passwordVersion,
       } : null);
       if (!actingAdmin || actingAdmin.role !== 'admin')
               return res.status(403).json({ error: 'Solo administradores' });
@@ -457,6 +508,7 @@ app.post('/admin/impersonate/:username', async (req, res) => {
       req.session.username = target.username;
       req.session.name     = target.name;
       req.session.role     = target.role;
+      req.session.passwordVersion = target.passwordVersion ?? 1;
       res.json({ ok: true, viewingAs: { username: target.username, name: target.name } });
 });
 
@@ -467,6 +519,7 @@ app.post('/admin/stop-impersonating', (req, res) => {
       req.session.username = admin.username;
       req.session.name     = admin.name;
       req.session.role     = admin.role;
+      if (admin.passwordVersion != null) req.session.passwordVersion = admin.passwordVersion;
       delete req.session.originalAdmin;
       res.json({ ok: true });
 });
@@ -499,8 +552,12 @@ app.delete('/admin/users/:username', requireAdmin, async (req, res) => {
 app.post('/admin/users/:username/reset-password', requireAdmin, async (req, res) => {
       const user = await findUser(req.params.username);
       if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-      user.passwordHash = bcrypt.hashSync(req.body.newPassword, 10);
-      await upsertUser(user);
+      const newVersion = await changePassword(user.username, bcrypt.hashSync(req.body.newPassword, 10));
+      // If admin happens to reset their OWN password from here, keep this
+      // device alive. For any other user, version bump kicks out their
+      // existing sessions on the next request.
+      if (newVersion != null && req.session.username === user.username && !req.session.originalAdmin)
+              req.session.passwordVersion = newVersion;
       res.json({ ok: true });
 });
 
