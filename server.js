@@ -398,8 +398,15 @@ async function bootstrap() {
               for (const u of SEED_USERS) await upsertUser(u);
               console.log(`\n\u2705 ${SEED_USERS.length} cuentas migradas a PostgreSQL\n`);
       } else {
+              // Re-create the seed admin ONLY if it doesn't exist anymore
+              // (e.g. accidental deletion). Never overwrite an existing
+              // admin row \u2014 that would reset their password to the hardcoded
+              // hash on every deploy.
               const admin = SEED_USERS.find(u => u.role === 'admin');
-              if (admin) await upsertUser(admin);
+              if (admin && !(await findUser(admin.username))) {
+                      await upsertUser(admin);
+                      console.log(`\n\u2705 Admin seed re-creado: ${admin.username}\n`);
+              }
       }
 }
 
