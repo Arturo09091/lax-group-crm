@@ -475,7 +475,9 @@ app.post('/auth/change-password', async (req, res) => {
       const user = await findUser(req.session.username);
       if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash))
               return res.json({ ok: false, error: 'Contrase\u00F1a actual incorrecta' });
-      const newVersion = await changePassword(user.username, bcrypt.hashSync(newPassword, 10));
+      const newPwd = String(newPassword || '').trim();
+      if (newPwd.length < 4) return res.json({ ok: false, error: 'Contrase\u00F1a m\u00EDnimo 4 caracteres' });
+      const newVersion = await changePassword(user.username, bcrypt.hashSync(newPwd, 10));
       // Self-change: sync this session's version so we don't auto-logout
       // here, but every OTHER device with the old version gets kicked out.
       if (newVersion != null) req.session.passwordVersion = newVersion;
@@ -543,11 +545,13 @@ app.get('/admin/users', requireAdmin, async (req, res) => {
 });
 app.post('/admin/users', requireAdmin, async (req, res) => {
       const { username, name, password, role = 'client' } = req.body;
-      if (!username || !name || !password) return res.status(400).json({ error: 'Faltan campos' });
+      const cleanPwd = String(password || '').trim();
+      if (!username || !name || !cleanPwd) return res.status(400).json({ error: 'Faltan campos' });
+      if (cleanPwd.length < 4) return res.status(400).json({ error: 'Contraseña mínimo 4 caracteres' });
       const existing = await findUser(username);
       if (existing) return res.status(409).json({ error: 'El usuario ya existe' });
       const key = wKey();
-      await upsertUser({ username, name, role, passwordHash: bcrypt.hashSync(password, 10), webhookKey: key });
+      await upsertUser({ username, name, role, passwordHash: bcrypt.hashSync(cleanPwd, 10), webhookKey: key });
       res.json({ ok: true, username, name, role, webhookKey: key });
 });
 app.delete('/admin/users/:username', requireAdmin, async (req, res) => {
@@ -559,7 +563,9 @@ app.delete('/admin/users/:username', requireAdmin, async (req, res) => {
 app.post('/admin/users/:username/reset-password', requireAdmin, async (req, res) => {
       const user = await findUser(req.params.username);
       if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-      const newVersion = await changePassword(user.username, bcrypt.hashSync(req.body.newPassword, 10));
+      const newPwd = String(req.body.newPassword || '').trim();
+      if (newPwd.length < 4) return res.status(400).json({ error: 'Contraseña mínimo 4 caracteres' });
+      const newVersion = await changePassword(user.username, bcrypt.hashSync(newPwd, 10));
       // If admin happens to reset their OWN password from here, keep this
       // device alive. For any other user, version bump kicks out their
       // existing sessions on the next request.

@@ -1495,6 +1495,8 @@ function AdminView({ showToast }) {
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState(null); // username being reset
   const [newPwd,   setNewPwd]   = useState('');
+  const [newPwd2,  setNewPwd2]  = useState(''); // confirmation
+  const [showPwd,  setShowPwd]  = useState(false);
   const HOST = window.location.origin;
 
   const load = () => {
@@ -1531,11 +1533,23 @@ function AdminView({ showToast }) {
   };
 
   const handleResetPwd = async username => {
-    if (!newPwd.trim()) return;
-    const res  = await fetch(`/admin/users/${username}/reset-password`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ newPassword: newPwd }) });
+    const pwd = newPwd.trim();
+    const pwd2 = newPwd2.trim();
+    if (!pwd) { showToast('Escribe una contraseña', 'error'); return; }
+    if (pwd.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+    if (pwd !== pwd2) { showToast('Las dos contraseñas no coinciden', 'error'); return; }
+    const res  = await fetch(`/admin/users/${username}/reset-password`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ newPassword: pwd }),
+    });
     const data = await res.json();
-    if (data.ok) { showToast(`Contraseña de "${username}" cambiada`, 'success'); setResetting(null); setNewPwd(''); }
-    else showToast(data.error, 'error');
+    if (data.ok) {
+      showToast(`Contraseña de "${username}" cambiada (${pwd.length} caracteres)`, 'success');
+      setResetting(null); setNewPwd(''); setNewPwd2(''); setShowPwd(false);
+    } else {
+      showToast(data.error || 'Error al cambiar contraseña', 'error');
+    }
   };
 
   const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";
@@ -1655,14 +1669,41 @@ function AdminView({ showToast }) {
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       {resetting === u.username ? (
-                        <div className="flex gap-1 items-center">
-                          <input value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder="Nueva contraseña"
-                            className="border rounded-lg px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
-                          <button onClick={() => handleResetPwd(u.username)} className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200">✓</button>
-                          <button onClick={() => { setResetting(null); setNewPwd(''); }} className="text-xs text-slate-400 px-1">✕</button>
+                        <div className="flex gap-1.5 items-center flex-wrap justify-end">
+                          <input
+                            type={showPwd ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            value={newPwd}
+                            onChange={e => setNewPwd(e.target.value)}
+                            placeholder="Nueva contraseña"
+                            className="border border-slate-300 rounded-lg px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                          <input
+                            type={showPwd ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            value={newPwd2}
+                            onChange={e => setNewPwd2(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleResetPwd(u.username); }}
+                            placeholder="Repetir"
+                            className={`border rounded-lg px-2 py-1 text-xs w-32 focus:outline-none focus:ring-1 ${newPwd2 && newPwd.trim() !== newPwd2.trim() ? 'border-red-400 focus:ring-red-400' : 'border-slate-300 focus:ring-indigo-400'}`} />
+                          <button
+                            type="button"
+                            onClick={() => setShowPwd(v => !v)}
+                            title={showPwd ? 'Ocultar' : 'Mostrar'}
+                            className="text-xs text-slate-400 hover:text-slate-700 px-1">
+                            {showPwd ? '🙈' : '👁'}
+                          </button>
+                          <button
+                            onClick={() => handleResetPwd(u.username)}
+                            disabled={!newPwd.trim() || newPwd.trim() !== newPwd2.trim()}
+                            className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                            Guardar
+                          </button>
+                          <button
+                            onClick={() => { setResetting(null); setNewPwd(''); setNewPwd2(''); setShowPwd(false); }}
+                            className="text-xs text-slate-400 px-1">✕</button>
                         </div>
                       ) : (
-                        <button onClick={() => setResetting(u.username)} className="text-xs text-slate-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50">
+                        <button onClick={() => { setResetting(u.username); setNewPwd(''); setNewPwd2(''); setShowPwd(false); }} className="text-xs text-slate-400 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50">
                           🔑 Cambiar pwd
                         </button>
                       )}
