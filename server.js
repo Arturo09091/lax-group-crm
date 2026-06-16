@@ -414,6 +414,7 @@ async function bootstrap() {
 const PUBLIC = ['/login', '/auth/login', '/logo.png', '/favicon.ico'];
 async function requireAuth(req, res, next) {
       if (PUBLIC.includes(req.path)) return next();
+      if (req.path.startsWith('/vendor/')) return next(); // public static libs (react/babel/tailwind)
       if (req.path.startsWith('/api/webhook/')) return next();
       if (!req.session.authenticated) {
               if (req.path.startsWith('/api/') || req.path.startsWith('/admin/'))
