@@ -121,7 +121,7 @@ const fmtDate  = d => {
 const daysUntil  = d => d ? Math.ceil((new Date(d) - new Date(todayISO())) / 86400000) : null;
 const isOverdue  = d => d && d < todayISO();
 const isToday    = d => d === todayISO();
-const fmtMoney   = n => n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `$${n}`;
+const fmtMoney   = n => n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace('.', ',')}k €` : `${n} €`;
 
 /* ═══════════════════════════ SAMPLE DATA ════════════════════════ */
 
@@ -267,7 +267,7 @@ function LeadModal({ lead, onSave, onClose }) {
               className={inputCls} placeholder="Ad Set o segmentación" />
           </Field>
 
-          <Field label="Valor potencial ($)">
+          <Field label="Valor potencial (€)">
             <input type="number" min="0" value={form.value} onChange={e => set('value', e.target.value)}
               className={inputCls} placeholder="0" />
           </Field>
@@ -358,7 +358,7 @@ function Dashboard({ leads, onEdit, onOpenNew, goTo }) {
           { label:'Total Leads',     value: total,                    sub:'registrados',            bg:'bg-indigo-50  text-indigo-700',  icon:'👥' },
           { label:'En Pipeline',     value: active,                   sub:'activos en proceso',     bg:'bg-blue-50    text-blue-700',    icon:'🔄' },
           { label:'Tasa conversión', value: `${convRate}%`,           sub:`${converted} convertidos`, bg:'bg-emerald-50 text-emerald-700', icon:'✅' },
-          { label:'Valor potencial', value: potVal ? fmtMoney(potVal) : '$0', sub:'suma pipeline activo', bg:'bg-amber-50   text-amber-700',   icon:'💰' },
+          { label:'Valor potencial', value: potVal ? fmtMoney(potVal) : '0 €', sub:'suma pipeline activo', bg:'bg-amber-50   text-amber-700',   icon:'💰' },
         ].map(({ label, value, sub, bg, icon }) => (
           <div key={label} className={`rounded-xl p-5 border border-current/10 ${bg}`}>
             <div className="flex items-center justify-between mb-2">
@@ -751,7 +751,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
                     <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{l.campaign || '—'}</td>
                     <td className="px-4 py-3"><StagePill stageId={l.stage} sm /></td>
                     <td className="px-4 py-3 text-xs font-semibold text-slate-600 whitespace-nowrap">
-                      {l.value ? `$${Number(l.value).toLocaleString('es')}` : '—'}
+                      {l.value ? `${Number(l.value).toLocaleString('es-ES')} €` : '—'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`text-xs font-medium ${over ? 'text-red-600' : tod ? 'text-amber-600' : 'text-slate-500'}`}>
@@ -910,7 +910,7 @@ const [dragging,  setDragging]  = useState(null);
 
                       {lead.value > 0 && (
                         <div className="text-xs text-emerald-700 font-semibold mb-2">
-                          💰 ${Number(lead.value).toLocaleString('es')}
+                          💰 ${Number(lead.value).toLocaleString('es-ES')} €
                         </div>
                       )}
 
@@ -1144,13 +1144,13 @@ function buildReport(leads, days) {
     summary = `No se registraron leads en los últimos ${days} días. Revisá las campañas de captación activas y asegurate de que el webhook de Make está funcionando correctamente.`;
   } else {
     const trendTxt = trend === null ? '' : trend > 0 ? `, un ${trend}% más que el período anterior 📈` : trend < 0 ? `, un ${Math.abs(trend)}% menos que el período anterior 📉` : ', igual que el período anterior';
-    summary = `En los últimos ${days} días captaste ${total} lead${total!==1?'s':''}${trendTxt}. De ellos, ${converted} se convirtier${converted!==1?'on':'ó'} en clientes (${convRate}%)${wonValue > 0 ? ` generando $${wonValue.toLocaleString('es')} en ventas cerradas` : ''}. Hay ${active} lead${active!==1?'s':''} activos con un valor potencial de $${potValue.toLocaleString('es')}.`;
+    summary = `En los últimos ${days} días captaste ${total} lead${total!==1?'s':''}${trendTxt}. De ellos, ${converted} se convirtier${converted!==1?'on':'ó'} en clientes (${convRate}%)${wonValue > 0 ? ` generando ${wonValue.toLocaleString('es-ES')} € en ventas cerradas` : ''}. Hay ${active} lead${active!==1?'s':''} activos con un valor potencial de ${potValue.toLocaleString('es-ES')} €.`;
   }
 
   const positives = [];
   if (convRate >= 15) positives.push(`Tasa de conversión del ${convRate}% — por encima del promedio del sector (10-15%).`);
   if (trend !== null && trend > 10) positives.push(`Crecimiento del ${trend}% en volumen de leads vs. período anterior.`);
-  if (wonValue > 0) positives.push(`$${wonValue.toLocaleString('es')} en ventas cerradas durante este período.`);
+  if (wonValue > 0) positives.push(`${wonValue.toLocaleString('es-ES')} € en ventas cerradas durante este período.`);
   if (bestSrc) positives.push(`"${bestSrc[0]}" es tu mejor fuente con ${bestSrc[1]} lead${bestSrc[1]!==1?'s':''}.`);
   if (overdue === 0 && total > 0) positives.push('Todos los seguimientos están al día — excelente gestión.');
   if (positives.length === 0) positives.push('El sistema está activo y registrando leads correctamente.');
@@ -1167,7 +1167,7 @@ function buildReport(leads, days) {
   const recs = [];
   if (overdue > 0) recs.push(`Prioridad #1: contactar hoy los ${overdue} lead${overdue!==1?'s':''} con seguimiento vencido.`);
   if (bottleneck.count > 1) recs.push(`Agendar llamadas para los ${bottleneck.count} leads estancados en "${bottleneck.label}".`);
-  if (active > 0) recs.push(`Hay $${potValue.toLocaleString('es')} en el pipeline activo. Enfocate en cerrarlos antes de captar nuevos.`);
+  if (active > 0) recs.push(`Hay ${potValue.toLocaleString('es-ES')} € en el pipeline activo. Enfocate en cerrarlos antes de captar nuevos.`);
   if (bySrc.length > 1) recs.push(`Invertí más en "${bestSrc[0]}" y analizá el ROI de las demás fuentes.`);
   if (convRate < 10 && total > 0) recs.push('Revisá el script de ventas y el tiempo de respuesta al primer contacto.');
   if (recs.length === 0) recs.push('Mantené el ritmo actual y registrá cada interacción en el CRM.');
@@ -1179,7 +1179,7 @@ function ReportsView({ leads }) {
   const [days, setDays] = useState(30);
   const report = buildReport(leads, days);
 
-  const fmtVal = v => v >= 1000 ? `$${(v/1000).toFixed(v%1000===0?0:1)}k` : `$${v}`;
+  const fmtVal = v => v >= 1000 ? `${(v/1000).toFixed(v%1000===0?0:1).replace('.', ',')}k €` : `${v} €`;
 
   const KPI = ({ label, value, sub, icon, color }) => (
     <div className={`rounded-xl p-4 border ${color}`}>
