@@ -4,7 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LAX Group CRM — Iniciar sesión</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/vendor/tailwind.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    /* Paleta de marca LAX: acento azul #0000FF + Poppins (igual que la app). */
+    tailwind.config = { theme: { extend: {
+      colors: { indigo: { 50:'#e8eaff',100:'#c7ccff',200:'#9aa3ff',300:'#6675ff',400:'#3a47ff',500:'#1a22ff',600:'#0000ff',700:'#0000db',800:'#0000ad',900:'#00007a' } },
+      fontFamily: { sans: ['Poppins','ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','Arial','sans-serif'] }
+    } } };
+  </script>
   <style>
     @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
     .fade-up { animation: fadeUp .35s ease; }

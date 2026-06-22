@@ -12,6 +12,18 @@
        Para actualizar una versión: descargar el archivo nuevo a vendor/
        a mano y probar antes de desplegar. -->
   <script src="/vendor/tailwind.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    /* Paleta de marca LAX: acento azul eléctrico #0000FF (de arturoabellan.com)
+       + tipografía Poppins. Override de la escala "indigo" → toda la app cambia
+       de acento sin tocar las clases. Verde/rojo/ámbar (semánticos) no se tocan. */
+    tailwind.config = { theme: { extend: {
+      colors: { indigo: { 50:'#e8eaff',100:'#c7ccff',200:'#9aa3ff',300:'#6675ff',400:'#3a47ff',500:'#1a22ff',600:'#0000ff',700:'#0000db',800:'#0000ad',900:'#00007a' } },
+      fontFamily: { sans: ['Poppins','ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','Arial','sans-serif'] }
+    } } };
+  </script>
   <script crossorigin src="/vendor/react.production.min.js"></script>
   <script crossorigin src="/vendor/react-dom.production.min.js"></script>
   <script src="/vendor/babel.min.js"></script>
@@ -24,7 +36,7 @@
     ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
     ::-webkit-scrollbar-track { background:transparent; }
     .drag-active { opacity:.45 !important; transform:scale(.97); }
-    .drop-target { outline:2px dashed #6366f1 !important; background:#eef2ff !important; }
+    .drop-target { outline:2px dashed #0000ff !important; background:#e8eaff !important; }
 
     /* ── PDF / Print styles ── */
     @media print {
@@ -1838,7 +1850,7 @@ function MetaCapiView({ toast }) {
         ? E('div',{className:'text-gray-500 p-8'},'No hay clientes creados.')
         : clients.map(c=>E('div',{key:c.username,className:'bg-gray-800 rounded-xl border border-gray-700 flex flex-col',style:{minWidth:'300px',maxWidth:'340px',flexShrink:0}},
           E('div',{className:'bg-gray-700 rounded-t-xl p-3 border-b border-gray-600 flex items-center gap-2'},
-            E('div',{className:'w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0',style:{background:'#6366f1'}},c.name[0].toUpperCase()),
+            E('div',{className:'w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0',style:{background:'#0000ff'}},c.name[0].toUpperCase()),
             E('div',{className:'flex-1 min-w-0'},
               E('div',{className:'font-semibold text-white text-sm truncate'},c.name),
               E('div',{className:'text-xs text-gray-400'},'@'+c.username)
@@ -2020,20 +2032,7 @@ function App() {
   if (!appReady) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
       <div className="text-center">
-        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style={{width:'56px',height:'56px',borderRadius:'14px',margin:'0 auto 16px'}}>
-          <defs>
-            <linearGradient id="lbg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#6366f1"/><stop offset="100%" stopColor="#3730a3"/></linearGradient>
-            <linearGradient id="lacc2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a5b4fc"/><stop offset="100%" stopColor="#ffffff"/></linearGradient>
-          </defs>
-          <rect width="200" height="200" rx="44" fill="url(#lbg2)"/>
-          <circle cx="76" cy="52" r="11" fill="white" opacity="0.95"/>
-          <circle cx="100" cy="44" r="13" fill="white"/>
-          <circle cx="124" cy="52" r="11" fill="white" opacity="0.95"/>
-          <path d="M52 80 L148 80 L130 108 L70 108 Z" fill="url(#lacc2)" opacity="0.95"/>
-          <path d="M70 112 L130 112 L118 136 L82 136 Z" fill="url(#lacc2)" opacity="0.9"/>
-          <path d="M82 140 L118 140 L112 158 L88 158 Z" fill="url(#lacc2)" opacity="0.85"/>
-          <path d="M88 162 Q100 182 112 162 L108 158 L92 158 Z" fill="white" opacity="0.9"/>
-        </svg>
+        <img src="/logo.png" alt="LAX Group" style={{height:'80px',width:'auto',display:'block',margin:'0 auto 16px'}} />
         <div className="text-white font-semibold text-lg">LAX Group CRM</div>
         <div className="text-slate-400 text-sm mt-1 animate-pulse">Cargando...</div>
       </div>
@@ -2074,26 +2073,7 @@ function App() {
             </svg>
           </button>
           <div className="flex items-center gap-2">
-            <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style={{width:'24px',height:'24px',borderRadius:'6px',display:'block',flexShrink:0}}>
-              <defs>
-                <linearGradient id="tbg" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#6366f1"/>
-                  <stop offset="100%" stopColor="#3730a3"/>
-                </linearGradient>
-                <linearGradient id="tacc" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a5b4fc"/>
-                  <stop offset="100%" stopColor="#ffffff"/>
-                </linearGradient>
-              </defs>
-              <rect width="200" height="200" rx="44" fill="url(#tbg)"/>
-              <circle cx="76"  cy="52" r="11" fill="white" opacity="0.95"/>
-              <circle cx="100" cy="44" r="13" fill="white"/>
-              <circle cx="124" cy="52" r="11" fill="white" opacity="0.95"/>
-              <path d="M52 80 L148 80 L130 108 L70 108 Z" fill="url(#tacc)" opacity="0.95"/>
-              <path d="M70 112 L130 112 L118 136 L82 136 Z" fill="url(#tacc)" opacity="0.9"/>
-              <path d="M82 140 L118 140 L112 158 L88 158 Z" fill="url(#tacc)" opacity="0.85"/>
-              <path d="M88 162 Q100 182 112 162 L108 158 L92 158 Z" fill="white" opacity="0.9"/>
-            </svg>
+            <img src="/logo.png" alt="LAX Group" style={{height:'28px',width:'auto',display:'block',flexShrink:0}} />
             <span className="font-semibold text-sm">{viewLabels[view] || 'LAX Group CRM'}</span>
           </div>
           <div className="flex items-center gap-2">
