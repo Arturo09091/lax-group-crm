@@ -150,7 +150,7 @@ const SAMPLES = [
 
 // localStorage (fast first paint, offline fallback)
 const loadLeads = () => {
-  try { const s = localStorage.getItem('lf_leads'); return s ? JSON.parse(s) : SAMPLES; }
+  try { const s = localStorage.getItem('lf_leads'); const a = s ? JSON.parse(s) : SAMPLES; return Array.isArray(a) ? a : SAMPLES; }
   catch { return SAMPLES; }
 };
 const cacheLeads = leads => { try { localStorage.setItem('lf_leads', JSON.stringify(leads)); } catch{} };
@@ -2003,9 +2003,13 @@ function App() {
     if (!silent) setSyncing(true);
     try {
       const serverLeads = await api.getLeads();
-      setLeads(serverLeads);
-      cacheLeads(serverLeads);
-      setLastSync(new Date().toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit' }));
+      // Guard: si la sesión caducó la API devuelve {error:...} (no un array).
+      // Nunca metemos un no-array en el estado → la app no puede romperse.
+      if (Array.isArray(serverLeads)) {
+        setLeads(serverLeads);
+        cacheLeads(serverLeads);
+        setLastSync(new Date().toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit' }));
+      }
     } catch {
       // Server unreachable — stay with cached data
     } finally {
