@@ -42,11 +42,23 @@ app.set('trust proxy', 1);
 if (!process.env.SESSION_SECRET) console.warn('\u26A0\uFE0F SESSION_SECRET no configurado');
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ extended: true, limit: '50kb' }));
+// Sesiones persistentes en Postgres (sobreviven a los redeploys; con
+// MemoryStore se perdían en cada deploy y obligaban a volver a entrar).
+// Si no hay DB, cae al MemoryStore por defecto sin romper nada.
+let sessionStore;
+if (pool) {
+      try {
+              const PgSession = require('connect-pg-simple')(session);
+              sessionStore = new PgSession({ pool, tableName: 'user_sessions', createTableIfMissing: true });
+      } catch (e) { console.warn('⚠️ connect-pg-simple no disponible, usando MemoryStore:', e.message); }
+}
 app.use(session({
+      store: sessionStore,
       secret: process.env.SESSION_SECRET || 'lf-change-in-prod-2026',
       resave: false,
       saveUninitialized: false,
-      cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, secure: 'auto', sameSite: 'lax' },
+      rolling: true,  // renueva la caducidad en cada visita (ventana deslizante de 30 días)
+      cookie: { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true, secure: 'auto', sameSite: 'lax' },
 }));
 
 // ── DB setup ─────────────────────────────────────────────────────

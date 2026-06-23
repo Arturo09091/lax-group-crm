@@ -71,19 +71,38 @@
     </div>
 
     <p class="text-center text-slate-600 text-xs mt-6">
-      LAX Group CRM
+      <a id="switchUser" href="#" class="hidden text-slate-500 hover:text-slate-300 transition-colors">← Usar otra cuenta</a>
+      <span id="footerBrand">LAX Group CRM</span>
     </p>
   </div>
 
   <script>
-    const form      = document.getElementById('loginForm');
-    const errorMsg  = document.getElementById('errorMsg');
-    const submitBtn = document.getElementById('submitBtn');
-    const togglePwd = document.getElementById('togglePwd');
-    const pwdInput  = document.getElementById('password');
+    const form       = document.getElementById('loginForm');
+    const errorMsg   = document.getElementById('errorMsg');
+    const submitBtn  = document.getElementById('submitBtn');
+    const togglePwd  = document.getElementById('togglePwd');
+    const pwdInput   = document.getElementById('password');
+    const userInput  = document.getElementById('username');
+    const switchUser = document.getElementById('switchUser');
+    const REMEMBER_KEY = 'lf_user';
 
     togglePwd.addEventListener('click', () => {
       pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+    });
+
+    // Recordar usuario: prerellenar y enfocar directamente la contraseña.
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) { userInput.value = saved; switchUser.classList.remove('hidden'); }
+    } catch (e) {}
+
+    // "Usar otra cuenta": olvidar el usuario recordado.
+    switchUser.addEventListener('click', e => {
+      e.preventDefault();
+      try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {}
+      userInput.value = ''; pwdInput.value = '';
+      switchUser.classList.add('hidden');
+      userInput.focus();
     });
 
     form.addEventListener('submit', async e => {
@@ -92,18 +111,28 @@
       submitBtn.disabled    = true;
       submitBtn.textContent = 'Verificando...';
 
+      const username = userInput.value.trim();
+      const password = pwdInput.value;
+
       try {
         const res  = await fetch('/auth/login', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            username: document.getElementById('username').value.trim(),
-            password: document.getElementById('password').value,
-          }),
+          body:    JSON.stringify({ username, password }),
         });
         const data = await res.json();
 
         if (data.ok) {
+          // Recordar el usuario (el nombre, nunca la contraseña en claro).
+          try { localStorage.setItem(REMEMBER_KEY, username); } catch (e) {}
+          // Ofrecer al gestor de contraseñas del navegador guardar la clave
+          // de forma segura (autofill en próximos inicios de sesión).
+          try {
+            if (window.PasswordCredential) {
+              const cred = new PasswordCredential({ id: username, password, name: username });
+              navigator.credentials.store(cred).catch(() => {});
+            }
+          } catch (e) {}
           submitBtn.textContent = '✓ Entrando...';
           window.location.href  = '/';
         } else {
@@ -111,19 +140,19 @@
           errorMsg.classList.remove('hidden');
           submitBtn.disabled    = false;
           submitBtn.textContent = 'Entrar';
-          document.getElementById('password').value = '';
-          document.getElementById('password').focus();
+          pwdInput.value = '';
+          pwdInput.focus();
         }
       } catch {
-        errorMsg.textContent = 'Error de conexión. Verificá que el servidor esté activo.';
+        errorMsg.textContent = 'Error de conexión. Verifica que el servidor esté activo.';
         errorMsg.classList.remove('hidden');
         submitBtn.disabled    = false;
         submitBtn.textContent = 'Entrar';
       }
     });
 
-    // Auto-focus
-    document.getElementById('username').focus();
+    // Enfoque inteligente: si ya recordamos el usuario, vamos directos a la contraseña.
+    if (userInput.value) pwdInput.focus(); else userInput.focus();
   </script>
 </body>
 </html>
