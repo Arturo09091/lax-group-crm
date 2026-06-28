@@ -252,9 +252,11 @@ function waDigits(raw) {
   return d;
 }
 
-function ContactBtns({ lead }) {
+const DEFAULT_WA_TEMPLATE = 'Hola {nombre}, te contactamos por tu consulta. ¿Cómo estás?';
+function ContactBtns({ lead, template }) {
   const digits = waDigits(lead.phone);
-  const waMsg  = encodeURIComponent(`Hola ${lead.name}, te contactamos por tu consulta. ¿Cómo estás?`);
+  const tpl    = (template && template.trim()) || DEFAULT_WA_TEMPLATE;
+  const waMsg  = encodeURIComponent(tpl.replace(/\{nombre\}/gi, lead.name || ''));
   // Objetivos de toque de 40px (cómodos en móvil). data-contact + stopPropagation
   // garantizan que tocar el botón NUNCA abra la ficha del lead.
   const btn    = 'w-10 h-10 flex items-center justify-center rounded-lg transition-colors flex-shrink-0';
@@ -706,7 +708,7 @@ function CSVImportModal({ onImport, onClose }) {
 
 /* ═══════════════════════════ LEADS TABLE ════════════════════════ */
 
-function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast }) {
+function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast, waTemplate }) {
   const [search,      setSearch]      = useState('');
   const [filterStage, setFilterStage] = useState('all');
   const [filterSrc,   setFilterSrc]   = useState('all');
@@ -850,7 +852,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
                       </span>
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <ContactBtns lead={l} />
+                      <ContactBtns lead={l} template={waTemplate} />
                     </td>
                     <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                       <button onClick={() => { if (window.confirm(`¿Eliminar a "${l.name}"?`)) onDelete(l.id); }}
@@ -869,7 +871,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
 
 /* ═══════════════════════════ PIPELINE ═══════════════════════════ */
 
-function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast, stageLabels = [], onSaveStageLabels }) {
+function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast, stageLabels = [], onSaveStageLabels, waTemplate }) {
     const getSL = (id) => { const f = stageLabels.find(s => s.id === id); return f ? f.label : (STAGE[id] ? STAGE[id].label : id); };  
 const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
@@ -1007,7 +1009,7 @@ const [dragging,  setDragging]  = useState(null);
                       )}
 
                       <div className="flex items-center justify-between mt-1">
-                        <ContactBtns lead={lead} />
+                        <ContactBtns lead={lead} template={waTemplate} />
                         <div className="flex items-center gap-1">
                           {/* Mover stage button — visible on touch devices */}
                           <button
@@ -1100,7 +1102,7 @@ const [dragging,  setDragging]  = useState(null);
 
 /* ═══════════════════════════ REMINDERS ══════════════════════════ */
 
-function RemindersView({ leads, onEdit }) {
+function RemindersView({ leads, onEdit, waTemplate }) {
   const overdue  = leads.filter(l => isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage))
                         .sort((a, b) => a.followUpDate.localeCompare(b.followUpDate));
   const todayArr = leads.filter(l => isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage));
@@ -1134,7 +1136,7 @@ function RemindersView({ leads, onEdit }) {
         </div>
         <div className="flex flex-col items-end gap-2 flex-shrink-0">
           <StagePill stageId={lead.stage} sm />
-          <ContactBtns lead={lead} />
+          <ContactBtns lead={lead} template={waTemplate} />
         </div>
       </div>
     );
@@ -1484,6 +1486,7 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
 
   const nav = isAdmin
     ? [{ id: 'admin', label: 'Clientes', icon: 'settings' },
+        { id: 'wa-templates', label: 'Mensajes WhatsApp', icon: 'whatsapp' },
         { id: 'meta-capi', label: 'API Conversiones Meta', icon: 'broadcast' }]
     : [
         { id: 'dashboard',  label: 'Dashboard',     icon: 'dashboard' },
@@ -1885,6 +1888,98 @@ const PIPELINE_STAGES_CAPI = [
   { id: 'lost', label: 'Perdido' },
 ];
 
+function WhatsappTemplatesView({ showToast }) {
+  const [data,    setData]    = useState({ default: DEFAULT_WA_TEMPLATE, clients: [] });
+  const [drafts,  setDrafts]  = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    fetch('/admin/whatsapp-templates').then(r => r.json()).then(d => {
+      const safe = d && Array.isArray(d.clients) ? d : { default: DEFAULT_WA_TEMPLATE, clients: [] };
+      setData(safe);
+      const dr = {};
+      safe.clients.forEach(c => { dr[c.username] = c.template; });
+      setDrafts(dr);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const setDraft = (u, v) => setDrafts(d => ({ ...d, [u]: v }));
+  const preview  = (tpl) => (tpl || '').replace(/\{nombre\}/gi, 'María');
+
+  const save = async (username) => {
+    const template = (drafts[username] || '').trim();
+    if (!template) { showToast('El mensaje no puede estar vacío', 'error'); return; }
+    setSaving(username);
+    try {
+      const r = await fetch(`/admin/whatsapp-templates/${username}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template }),
+      });
+      const d = await r.json();
+      showToast(d.ok ? 'Mensaje guardado' : (d.error || 'Error al guardar'), d.ok ? 'success' : 'error');
+    } catch { showToast('Error de conexión', 'error'); }
+    setSaving(null);
+  };
+
+  return (
+    <div className="p-4 sm:p-6 anim-fade max-w-4xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-800">Mensajes de WhatsApp</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Define el mensaje que se enviará al pulsar el botón de WhatsApp en cada cuenta de cliente.</p>
+      </div>
+
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-5 flex gap-3">
+        <span className="text-indigo-600 flex-shrink-0 mt-0.5"><Icon name="whatsapp" size={18} /></span>
+        <div className="text-sm text-indigo-900">
+          Escribe <code className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-xs">{'{nombre}'}</code> donde quieras que aparezca automáticamente el nombre del lead.
+          <div className="text-xs text-indigo-700 mt-1">Por defecto: "{data.default}"</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-slate-400">Cargando…</div>
+      ) : data.clients.length === 0 ? (
+        <div className="text-center py-12 text-slate-400">No hay clientes todavía.</div>
+      ) : (
+        <div className="space-y-4">
+          {data.clients.map(c => (
+            <div key={c.username} className="bg-white border border-slate-200 rounded-xl p-5">
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{c.name.charAt(0)}</div>
+                <div>
+                  <div className="font-semibold text-slate-800">{c.name}</div>
+                  <div className="text-xs text-slate-400 font-mono">{c.username}</div>
+                </div>
+              </div>
+              <textarea
+                value={drafts[c.username] || ''}
+                onChange={e => setDraft(c.username, e.target.value)}
+                rows={3}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white resize-none"
+                placeholder={data.default} />
+              <div className="mt-2 text-xs text-slate-500">
+                Vista previa: <span className="text-slate-700">{preview(drafts[c.username])}</span>
+              </div>
+              <div className="flex items-center justify-between mt-3">
+                <button onClick={() => setDraft(c.username, data.default)}
+                  className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Restaurar por defecto</button>
+                <button onClick={() => save(c.username)} disabled={saving === c.username}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-60 flex items-center gap-1.5">
+                  <Icon name="check" size={15} /> {saving === c.username ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MetaCapiView({ toast }) {
   const [clients, setClients] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -2002,6 +2097,7 @@ function App() {
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [appReady,   setAppReady]   = useState(false);
           const [stageLabels,   setStageLabels]  = useState(STAGES.map(s => ({ id: s.id, label: s.label })));
+  const [waTemplate, setWaTemplate] = useState(DEFAULT_WA_TEMPLATE);
 
   const showToast = (msg, type = 'info') => setToast({ msg, type, id: Date.now() });
 
@@ -2023,6 +2119,15 @@ function App() {
                                                                                   }).catch(() => {});
                                                                                               }
                                                                                                       }, [me]);
+
+  // Load this client's WhatsApp message template (used by the contact buttons)
+  useEffect(() => {
+    if (me && me.role === 'client') {
+      fetch('/api/whatsapp-template').then(r => r.json()).then(d => {
+        if (d && d.template) setWaTemplate(d.template);
+      }).catch(() => {});
+    }
+  }, [me]);
 
                                                                                                               // Helper: get label for a stage id
                                                                                                                       const getStageLabel = (id) => {
@@ -2125,7 +2230,7 @@ function App() {
   };
 
   const isAdmin    = me?.role === 'admin';
-  const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, onImport: handleImport, showToast };
+  const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, onImport: handleImport, showToast, waTemplate };
 
   const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
 
@@ -2189,6 +2294,7 @@ function App() {
       <main className="flex-1 overflow-y-auto bg-slate-50">
         {view === 'admin'     && <AdminView showToast={showToast} />}
         {view === 'meta-capi' && isAdmin && <MetaCapiView toast={toast} />}
+        {view === 'wa-templates' && isAdmin && <WhatsappTemplatesView showToast={showToast} />}
         {view === 'dashboard' && !isAdmin && (
           <Dashboard {...commonProps}
             onOpenNew={() => { setView('leads'); setModal(null); }}

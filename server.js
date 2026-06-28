@@ -109,6 +109,11 @@ async function initDB() {
                                                                                                                 PRIMARY KEY (username, stage_id)
                                                                                                                         )
                                                                                                                             `);
+      // Plantilla de mensaje de WhatsApp por cliente (configurable por el admin)
+      await pool.query(`CREATE TABLE IF NOT EXISTS whatsapp_templates (
+              username TEXT PRIMARY KEY,
+              template TEXT NOT NULL
+          )`);
       // Migrate from auth.json
   const { rows } = await pool.query('SELECT COUNT(*) as c FROM crm_users');
       if (rows[0].c === '0' && fs.existsSync(AUTH_FILE)) {
@@ -319,6 +324,22 @@ const DEFAULT_STAGE_LABELS = [
                                                                                                                                                                                                                                                                  }
                                                                                                                                                                                                                                                                      }
                                                                                                                                                                                                                                                                      }
+
+// ── WhatsApp message template per client ─────────────────────────
+const DEFAULT_WA_TEMPLATE = 'Hola {nombre}, te contactamos por tu consulta. ¿Cómo estás?';
+async function getWhatsappTemplate(username) {
+      if (!pool) return DEFAULT_WA_TEMPLATE;
+      const { rows } = await pool.query('SELECT template FROM whatsapp_templates WHERE username=$1', [username]);
+      return rows[0] && rows[0].template ? rows[0].template : DEFAULT_WA_TEMPLATE;
+}
+async function setWhatsappTemplate(username, template) {
+      if (!pool) return;
+      await pool.query(
+              `INSERT INTO whatsapp_templates (username, template) VALUES ($1,$2)
+               ON CONFLICT (username) DO UPDATE SET template=$2`,
+              [username, template]
+      );
+}
 
 // ── Meta Conversions API: fire event ────────────────────────────
 function hashSHA256(value) {
@@ -691,6 +712,46 @@ app.get('/api/pipeline-stages', async (req, res) => {
                                                                                                                                             }
                                                                                                                                             });
 
+
+// ── WhatsApp templates API ───────────────────────────────────────
+// Cliente: lee SU propia plantilla (la usa el botón de WhatsApp del CRM).
+app.get('/api/whatsapp-template', async (req, res) => {
+      try {
+              res.json({ template: await getWhatsappTemplate(req.session.username) });
+      } catch (e) {
+              console.error('whatsapp-template GET error:', e);
+              res.json({ template: DEFAULT_WA_TEMPLATE });
+      }
+});
+// Admin: lista de clientes con su plantilla.
+app.get('/admin/whatsapp-templates', requireAdmin, async (req, res) => {
+      try {
+              const users = await getUsers();
+              const clients = users.filter(u => u.role === 'client');
+              const result = await Promise.all(clients.map(async u => ({
+                      username: u.username, name: u.name, template: await getWhatsappTemplate(u.username),
+              })));
+              res.json({ default: DEFAULT_WA_TEMPLATE, clients: result });
+      } catch (e) {
+              console.error('admin whatsapp-templates GET error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
+// Admin: guarda la plantilla de un cliente.
+app.post('/admin/whatsapp-templates/:username', requireAdmin, async (req, res) => {
+      try {
+              const user = await findUser(req.params.username);
+              if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+              const tpl = String(req.body.template || '').trim();
+              if (!tpl) return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+              if (tpl.length > 1000) return res.status(400).json({ error: 'Mensaje demasiado largo' });
+              await setWhatsappTemplate(user.username, tpl);
+              res.json({ ok: true });
+      } catch (e) {
+              console.error('admin whatsapp-templates POST error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
 
 // ── Leads API ─────────────────────────────────────────────────────
 app.get('/api/leads', async (req, res) => res.json(await readLeads(req.session.username)));
