@@ -469,18 +469,30 @@ app.use(express.static(path.join(__dirname)));
 
 // ── Auth routes ───────────────────────────────────────────────────
 app.post('/auth/login', async (req, res) => {
+      // Soporta dos modos sin romper nada:
+      //  \u00B7 formulario nativo (urlencoded) \u2192 redirige (el navegador ofrece
+      //    guardar la contrase\u00F1a y la autocompleta en el pr\u00F3ximo inicio)
+      //  \u00B7 JSON (fetch) \u2192 respuesta JSON (compatibilidad)
+      const wantsJson = !!req.is('json');
       const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
-      if (isRateLimited(ip)) return res.status(429).json({ ok: false, error: 'Demasiados intentos. Esper\u00E1 15 minutos.' });
+      if (isRateLimited(ip))
+              return wantsJson
+                      ? res.status(429).json({ ok: false, error: 'Demasiados intentos. Espera 15 minutos.' })
+                      : res.redirect('/login?e=rate');
       const { username, password } = req.body;
       const user = await findUser(username);
       if (!user || !bcrypt.compareSync(password, user.passwordHash))
-              return res.json({ ok: false, error: 'Usuario o contrase\u00F1a incorrectos' });
+              return wantsJson
+                      ? res.json({ ok: false, error: 'Usuario o contrase\u00F1a incorrectos' })
+                      : res.redirect('/login?e=bad');
       req.session.authenticated = true;
       req.session.username = user.username;
       req.session.name     = user.name;
       req.session.role     = user.role;
       req.session.passwordVersion = user.passwordVersion ?? 1;
-      res.json({ ok: true, role: user.role, name: user.name });
+      if (wantsJson) return res.json({ ok: true, role: user.role, name: user.name });
+      // Guardamos la sesi\u00F3n antes de la navegaci\u00F3n para que la cookie viaje.
+      req.session.save(() => res.redirect('/'));
 });
 app.get('/auth/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 app.post('/auth/change-password', async (req, res) => {
