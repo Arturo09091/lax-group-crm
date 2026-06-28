@@ -255,26 +255,31 @@ function waDigits(raw) {
 function ContactBtns({ lead }) {
   const digits = waDigits(lead.phone);
   const waMsg  = encodeURIComponent(`Hola ${lead.name}, te contactamos por tu consulta. ¿Cómo estás?`);
-  const btn    = 'w-8 h-8 flex items-center justify-center rounded-lg transition-colors';
+  // Objetivos de toque de 40px (cómodos en móvil). data-contact + stopPropagation
+  // garantizan que tocar el botón NUNCA abra la ficha del lead.
+  const btn    = 'w-10 h-10 flex items-center justify-center rounded-lg transition-colors flex-shrink-0';
+  const stop   = e => e.stopPropagation();
   return (
-    <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
+    <div className="flex gap-1.5" style={{ touchAction: 'manipulation' }} onClick={stop}>
       {digits && (
         <a href={`https://wa.me/${digits}?text=${waMsg}`} target="_blank" rel="noopener noreferrer"
+           data-contact="1" onClick={stop}
            title="WhatsApp" aria-label="Enviar WhatsApp"
-           className={`${btn} bg-emerald-50 hover:bg-emerald-100 text-emerald-600`}>
-          <Icon name="whatsapp" size={16} />
+           className={`${btn} bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-600`}>
+          <Icon name="whatsapp" size={19} />
         </a>
       )}
       {digits && (
-        <a href={`tel:+${digits}`} title="Llamar" aria-label="Llamar"
-           className={`${btn} bg-blue-50 hover:bg-blue-100 text-blue-600`}>
-          <Icon name="phone" size={16} />
+        <a href={`tel:+${digits}`} data-contact="1" onClick={stop} title="Llamar" aria-label="Llamar"
+           className={`${btn} bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-600`}>
+          <Icon name="phone" size={19} />
         </a>
       )}
       {lead.email && (
-        <a href={`mailto:${lead.email}?subject=Consulta`} title="Email" aria-label="Enviar email"
-           className={`${btn} bg-slate-100 hover:bg-slate-200 text-slate-600`}>
-          <Icon name="mail" size={16} />
+        <a href={`mailto:${lead.email}?subject=Consulta`} data-contact="1" onClick={stop}
+           title="Email" aria-label="Enviar email"
+           className={`${btn} bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-600`}>
+          <Icon name="mail" size={19} />
         </a>
       )}
     </div>
@@ -822,7 +827,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
                 const over  = isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage);
                 const tod   = isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage);
                 return (
-                  <tr key={l.id} onClick={() => onEdit(l)}
+                  <tr key={l.id} onClick={(e) => { if (e.target.closest('a, button')) return; onEdit(l); }}
                     className="hover:bg-slate-50 cursor-pointer transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -964,13 +969,14 @@ const [dragging,  setDragging]  = useState(null);
                           onStageChange(tl.id, ts);
                           showToast(`${tl.name} → ${s.label}`, 'success');
                         } else if (!ts) {
-                          // no drag detected — treat as tap to edit
-                          onEdit(tl);
+                          // no drag detected — treat as tap to edit, salvo que el
+                          // toque haya sido sobre un botón de contacto/acción.
+                          if (!e.target.closest('a, button')) onEdit(tl);
                         }
                         touchLead.current = null; touchStage.current = null;
                         setDragging(null); setDragOver(null);
                       }}
-                      onClick={e => { if (!('ontouchstart' in window)) onEdit(lead); }}
+                      onClick={e => { if (!('ontouchstart' in window) && !e.target.closest('a, button')) onEdit(lead); }}
                       className={`bg-white rounded-xl border p-3 cursor-grab active:cursor-grabbing
                         hover:shadow-md transition-all duration-150 select-none
                         ${dragging?.id === lead.id ? 'drag-active shadow-lg' : 'shadow-sm'}
@@ -996,7 +1002,7 @@ const [dragging,  setDragging]  = useState(null);
 
                       {lead.value > 0 && (
                         <div className="text-xs text-emerald-700 font-semibold mb-2">
-                          💰 ${Number(lead.value).toLocaleString('es-ES')} €
+                          💰 {Number(lead.value).toLocaleString('es-ES')} €
                         </div>
                       )}
 
@@ -1115,7 +1121,7 @@ function RemindersView({ leads, onEdit }) {
     }[urgency] || {};
 
     return (
-      <div onClick={() => onEdit(lead)}
+      <div onClick={(e) => { if (e.target.closest('a, button')) return; onEdit(lead); }}
         className={`flex items-center gap-4 p-4 rounded-xl border ${meta.bg} cursor-pointer hover:shadow-md transition-all`}>
         <div className="w-10 h-10 rounded-full bg-white border-2 border-indigo-200 text-indigo-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
           {lead.name.charAt(0)}
