@@ -89,7 +89,7 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 /* ═══════════════════════ ERROR BOUNDARY ═════════════════════════ */
 class ErrorBoundary extends React.Component {
@@ -715,15 +715,19 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
   const [sortCol,     setSortCol]     = useState('createdAt');
   const [sortDir,     setSortDir]     = useState('desc');
   const [showImport,  setShowImport]  = useState(false);
+  const [visibleCount, setVisibleCount] = useState(50); // paginación incremental "Ver más"
 
   const handleImportDone = rows => { onImport(rows); setShowImport(false); };
+
+  // Al cambiar búsqueda/filtros/orden, volvemos a mostrar solo los primeros 50.
+  useEffect(() => { setVisibleCount(50); }, [search, filterStage, filterSrc, sortCol, sortDir]);
 
   const toggleSort = col => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('desc'); }
   };
 
-  const filtered = leads
+  const filtered = useMemo(() => leads
     .filter(l => filterStage === 'all' || l.stage === filterStage)
     .filter(l => filterSrc   === 'all' || l.source === filterSrc)
     .filter(l => {
@@ -736,7 +740,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
       if (sortCol === 'value') { va = +va; vb = +vb; }
       const c = va < vb ? -1 : va > vb ? 1 : 0;
       return sortDir === 'asc' ? c : -c;
-    });
+    }), [leads, filterStage, filterSrc, search, sortCol, sortDir]);
 
   const exportCSV = () => {
     const cols  = ['name','phone','email','source','campaign','adSet','stage','value','createdAt','followUpDate','notes'];
@@ -825,7 +829,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
                     No se encontraron leads
                   </div>
                 </td></tr>
-              ) : filtered.map(l => {
+              ) : filtered.slice(0, visibleCount).map(l => {
                 const over  = isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage);
                 const tod   = isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage);
                 return (
@@ -865,6 +869,18 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
           </table>
         </div>
       </div>
+
+      {filtered.length > visibleCount && (
+        <div className="flex flex-col items-center gap-2 mt-4">
+          <button onClick={() => setVisibleCount(v => v + 50)}
+            className="bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm">
+            Ver más (+50)
+          </button>
+          <span className="text-xs text-slate-400">
+            Mostrando {Math.min(visibleCount, filtered.length)} de {filtered.length}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -884,12 +900,17 @@ const [dragging,  setDragging]  = useState(null);
   const touchLead   = useRef(null);
   const touchStage  = useRef(null);
 
-  const filtered = filter
+  // Paginación incremental por columna: cuántas tarjetas se muestran por etapa.
+  const [colVisible, setColVisible] = useState({});
+  const colCount = (id) => colVisible[id] || 50;
+  useEffect(() => { setColVisible({}); }, [filter]); // al filtrar, reset a 50/columna
+
+  const filtered = useMemo(() => filter
     ? leads.filter(l => l.name.toLowerCase().includes(filter.toLowerCase()) ||
                         (l.campaign || '').toLowerCase().includes(filter.toLowerCase()))
-    : leads;
+    : leads, [leads, filter]);
 
-  const byStage = Object.fromEntries(STAGES.map(s => [s.id, filtered.filter(l => l.stage === s.id)]));
+  const byStage = useMemo(() => Object.fromEntries(STAGES.map(s => [s.id, filtered.filter(l => l.stage === s.id)])), [filtered]);
 
   return (
     <>
@@ -946,7 +967,7 @@ const [dragging,  setDragging]  = useState(null);
 
               {/* Cards */}
               <div className="flex-1 px-2 pb-2 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                {stageLeads.map(lead => {
+                {stageLeads.slice(0, colCount(stage.id)).map(lead => {
                   const over = isOverdue(lead.followUpDate) && !['converted','lost'].includes(lead.stage);
                   const tod  = isToday(lead.followUpDate)   && !['converted','lost'].includes(lead.stage);
                   const showPicker = movingId === lead.id;
@@ -1063,6 +1084,12 @@ const [dragging,  setDragging]  = useState(null);
                     ${isTarget ? 'border-indigo-400 text-indigo-500' : 'border-slate-200'}`}>
                     {isTarget ? '¡Soltá aquí!' : 'Sin leads en esta etapa'}
                   </div>
+                )}
+                {stageLeads.length > colCount(stage.id) && (
+                  <button onClick={() => setColVisible(v => ({ ...v, [stage.id]: colCount(stage.id) + 50 }))}
+                    className="w-full text-xs font-semibold text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 rounded-xl py-2 transition-colors">
+                    Ver más (+50) · {Math.min(colCount(stage.id), stageLeads.length)}/{stageLeads.length}
+                  </button>
                 )}
               </div>
             </div>
@@ -2149,6 +2176,10 @@ function App() {
                                                                                                                                                                                                                                                                                                                                                       }
                                                                                                                                                                                                                                                                                                                                                                   } catch(e) { showToast('Error al guardar', 'error'); }
                                                                                                                                                                                                                                                                                                                                                                           };
+  // Firma ligera de los leads: si no cambia entre syncs, NO tocamos el estado
+  // (así el sync de cada 30s no repinta 4.500 filas para nada).
+  const lastSigRef = useRef('');
+
   // Pull leads from server (called on mount + every 30s to catch Make webhook leads)
   const syncFromServer = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true);
@@ -2157,8 +2188,14 @@ function App() {
       // Guard: si la sesión caducó la API devuelve {error:...} (no un array).
       // Nunca metemos un no-array en el estado → la app no puede romperse.
       if (Array.isArray(serverLeads)) {
-        setLeads(serverLeads);
-        cacheLeads(serverLeads);
+        const sig = serverLeads.length + '|' + serverLeads.map(l =>
+          l.id+':'+l.stage+':'+(l.value||'')+':'+(l.followUpDate||'')+':'+(l.name||'')+':'+(l.campaign||'')+':'+(l.source||'')+':'+(l.email||'')+':'+(l.phone||'')
+        ).join(';');
+        if (sig !== lastSigRef.current) {           // solo si algo cambió de verdad
+          lastSigRef.current = sig;
+          setLeads(serverLeads);
+          cacheLeads(serverLeads);
+        }
         setLastSync(new Date().toLocaleTimeString('es', { hour:'2-digit', minute:'2-digit' }));
       }
     } catch {
@@ -2170,8 +2207,11 @@ function App() {
 
   useEffect(() => {
     syncFromServer();
-    const interval = setInterval(() => syncFromServer(true), 30000);
-    return () => clearInterval(interval);
+    // Solo sincronizamos si la pestaña está visible (no gastamos en segundo plano).
+    const interval = setInterval(() => { if (!document.hidden) syncFromServer(true); }, 30000);
+    const onVis = () => { if (!document.hidden) syncFromServer(true); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis); };
   }, [syncFromServer]);
 
   const openEdit   = lead => setModal(lead);
