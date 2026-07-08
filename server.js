@@ -114,6 +114,8 @@ async function initDB() {
               username TEXT PRIMARY KEY,
               template TEXT NOT NULL
           )`);
+      // Elección de app por cliente: 'normal' | 'business' (por defecto 'normal' = comportamiento actual)
+      await pool.query(`ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS wa_app TEXT NOT NULL DEFAULT 'normal'`);
       // Migrate from auth.json
   const { rows } = await pool.query('SELECT COUNT(*) as c FROM crm_users');
       if (rows[0].c === '0' && fs.existsSync(AUTH_FILE)) {
@@ -338,6 +340,24 @@ async function setWhatsappTemplate(username, template) {
               `INSERT INTO whatsapp_templates (username, template) VALUES ($1,$2)
                ON CONFLICT (username) DO UPDATE SET template=$2`,
               [username, template]
+      );
+}
+// Config completa: plantilla + app elegida ('normal' | 'business').
+async function getWhatsappConfig(username) {
+      if (!pool) return { template: DEFAULT_WA_TEMPLATE, waApp: 'normal' };
+      const { rows } = await pool.query('SELECT template, wa_app FROM whatsapp_templates WHERE username=$1', [username]);
+      return {
+              template: rows[0] && rows[0].template ? rows[0].template : DEFAULT_WA_TEMPLATE,
+              waApp:    rows[0] && rows[0].wa_app === 'business' ? 'business' : 'normal',
+      };
+}
+async function setWhatsappConfig(username, template, waApp) {
+      if (!pool) return;
+      const app = waApp === 'business' ? 'business' : 'normal';
+      await pool.query(
+              `INSERT INTO whatsapp_templates (username, template, wa_app) VALUES ($1,$2,$3)
+               ON CONFLICT (username) DO UPDATE SET template=$2, wa_app=$3`,
+              [username, template, app]
       );
 }
 
@@ -717,27 +737,28 @@ app.get('/api/pipeline-stages', async (req, res) => {
 // Cliente: lee SU propia plantilla (la usa el botón de WhatsApp del CRM).
 app.get('/api/whatsapp-template', async (req, res) => {
       try {
-              res.json({ template: await getWhatsappTemplate(req.session.username) });
+              res.json(await getWhatsappConfig(req.session.username));
       } catch (e) {
               console.error('whatsapp-template GET error:', e);
-              res.json({ template: DEFAULT_WA_TEMPLATE });
+              res.json({ template: DEFAULT_WA_TEMPLATE, waApp: 'normal' });
       }
 });
-// Admin: lista de clientes con su plantilla.
+// Admin: lista de clientes con su plantilla y app elegida.
 app.get('/admin/whatsapp-templates', requireAdmin, async (req, res) => {
       try {
               const users = await getUsers();
               const clients = users.filter(u => u.role === 'client');
-              const result = await Promise.all(clients.map(async u => ({
-                      username: u.username, name: u.name, template: await getWhatsappTemplate(u.username),
-              })));
+              const result = await Promise.all(clients.map(async u => {
+                      const cfg = await getWhatsappConfig(u.username);
+                      return { username: u.username, name: u.name, template: cfg.template, waApp: cfg.waApp };
+              }));
               res.json({ default: DEFAULT_WA_TEMPLATE, clients: result });
       } catch (e) {
               console.error('admin whatsapp-templates GET error:', e);
               res.status(500).json({ error: 'Error interno' });
       }
 });
-// Admin: guarda la plantilla de un cliente.
+// Admin: guarda la plantilla y la app (normal/business) de un cliente.
 app.post('/admin/whatsapp-templates/:username', requireAdmin, async (req, res) => {
       try {
               const user = await findUser(req.params.username);
@@ -745,7 +766,8 @@ app.post('/admin/whatsapp-templates/:username', requireAdmin, async (req, res) =
               const tpl = String(req.body.template || '').trim();
               if (!tpl) return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
               if (tpl.length > 1000) return res.status(400).json({ error: 'Mensaje demasiado largo' });
-              await setWhatsappTemplate(user.username, tpl);
+              const waApp = req.body.waApp === 'business' ? 'business' : 'normal';
+              await setWhatsappConfig(user.username, tpl, waApp);
               res.json({ ok: true });
       } catch (e) {
               console.error('admin whatsapp-templates POST error:', e);
