@@ -905,9 +905,49 @@ const [dragging,  setDragging]  = useState(null);
           const [showEditStages, setShowEditStages] = useState(false);
                   const [editLabels, setEditLabels] = useState([]);
 
-  // Touch drag refs
-  const touchLead   = useRef(null);
-  const touchStage  = useRef(null);
+  // ── Arrastre táctil (móvil): pulsación mantenida → la tarjeta sigue al dedo ──
+  const pressTimer = useRef(null);
+  const touchDrag  = useRef({ active: false, lead: null, over: null });
+  const startXY    = useRef({ x: 0, y: 0 });
+  const ghostRef   = useRef(null);
+  const [touchDragLead, setTouchDragLead] = useState(null); // lead "levantado" (para la sombra)
+
+  const moveGhost = (x, y) => { const g = ghostRef.current; if (g) { g.style.left = x + 'px'; g.style.top = y + 'px'; } };
+
+  // Listener NO-PASIVO: sólo así podemos preventDefault y frenar el scroll mientras se arrastra.
+  const onDocTouchMove = useCallback((ev) => {
+    if (!touchDrag.current.active) return;
+    ev.preventDefault();
+    const t = ev.touches[0];
+    moveGhost(t.clientX, t.clientY);
+    const el  = document.elementFromPoint(t.clientX, t.clientY);
+    const col = el && el.closest('[data-stage-id]');
+    const sid = col ? col.getAttribute('data-stage-id') : null;
+    if (touchDrag.current.over !== sid) { touchDrag.current.over = sid; setDragOver(sid); } // sólo re-render al cambiar de columna
+  }, []);
+
+  const beginTouchDrag = (lead, x, y) => {
+    touchDrag.current = { active: true, lead, over: lead.stage };
+    startXY.current = { x, y };
+    setTouchDragLead(lead);
+    if (navigator.vibrate) { try { navigator.vibrate(25); } catch (e) {} }
+    document.addEventListener('touchmove', onDocTouchMove, { passive: false });
+  };
+
+  const endTouchDrag = (drop) => {
+    document.removeEventListener('touchmove', onDocTouchMove, { passive: false });
+    const { lead, over } = touchDrag.current;
+    if (drop && lead && over && lead.stage !== over) {
+      onStageChange(lead.id, over);
+      showToast(`${lead.name} → ${getSL(over)}`, 'success');
+    }
+    touchDrag.current = { active: false, lead: null, over: null };
+    setTouchDragLead(null);
+    setDragOver(null);
+  };
+
+  // Limpieza si el componente se desmonta a media faena.
+  useEffect(() => () => { clearTimeout(pressTimer.current); document.removeEventListener('touchmove', onDocTouchMove, { passive: false }); }, [onDocTouchMove]);
 
   // Paginación incremental por columna: cuántas tarjetas se muestran por etapa.
   const [colVisible, setColVisible] = useState({});
@@ -985,33 +1025,30 @@ const [dragging,  setDragging]  = useState(null);
                       draggable
                       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging(lead); }}
                       onDragEnd={() => { setDragging(null); setDragOver(null); }}
-                      onTouchStart={e => { touchLead.current = lead; touchStage.current = null; }}
-                      onTouchMove={e => {
+                      onTouchStart={e => {
+                        if (e.target.closest('a, button')) return;      // taps en contacto/acciones NO inician arrastre
                         const t = e.touches[0];
-                        const el = document.elementFromPoint(t.clientX, t.clientY);
-                        const col = el && el.closest('[data-stage-id]');
-                        const sid = col ? col.getAttribute('data-stage-id') : null;
-                        if (sid !== touchStage.current) { touchStage.current = sid; setDragOver(sid); }
+                        startXY.current = { x: t.clientX, y: t.clientY };
+                        clearTimeout(pressTimer.current);
+                        pressTimer.current = setTimeout(() => beginTouchDrag(lead, t.clientX, t.clientY), 260); // pulsación mantenida
+                      }}
+                      onTouchMove={e => {
+                        if (touchDrag.current.active) return;            // el arrastre lo gestiona el listener no-pasivo
+                        const t = e.touches[0];
+                        const moved = Math.abs(t.clientX - startXY.current.x) + Math.abs(t.clientY - startXY.current.y);
+                        if (moved > 12) clearTimeout(pressTimer.current); // se está haciendo scroll, cancelamos el long-press
                       }}
                       onTouchEnd={e => {
-                        const tl = touchLead.current;
-                        const ts = touchStage.current;
-                        if (tl && ts && tl.stage !== ts) {
-                          const s = STAGES.find(s => s.id === ts);
-                          onStageChange(tl.id, ts);
-                          showToast(`${tl.name} → ${s.label}`, 'success');
-                        } else if (!ts) {
-                          // no drag detected — treat as tap to edit, salvo que el
-                          // toque haya sido sobre un botón de contacto/acción.
-                          if (!e.target.closest('a, button')) onEdit(tl);
-                        }
-                        touchLead.current = null; touchStage.current = null;
-                        setDragging(null); setDragOver(null);
+                        clearTimeout(pressTimer.current);
+                        if (touchDrag.current.active) { e.preventDefault(); endTouchDrag(true); return; }
+                        // toque rápido (sin arrastre): abrir ficha, salvo sobre un botón/enlace
+                        if (!e.target.closest('a, button')) onEdit(lead);
                       }}
+                      onTouchCancel={() => { clearTimeout(pressTimer.current); if (touchDrag.current.active) endTouchDrag(false); }}
                       onClick={e => { if (!('ontouchstart' in window) && !e.target.closest('a, button')) onEdit(lead); }}
                       className={`bg-white rounded-xl border p-3 cursor-grab active:cursor-grabbing
                         hover:shadow-md transition-all duration-150 select-none
-                        ${dragging?.id === lead.id ? 'drag-active shadow-lg' : 'shadow-sm'}
+                        ${(dragging?.id === lead.id || touchDragLead?.id === lead.id) ? 'drag-active shadow-lg opacity-40' : 'shadow-sm'}
                         ${over ? 'border-red-200 bg-red-50' : tod ? 'border-amber-200 bg-amber-50' : 'border-slate-200'}`}>
 
                       <div className="flex items-center gap-2 mb-2">
@@ -1043,26 +1080,23 @@ const [dragging,  setDragging]  = useState(null);
                         <div className="flex items-center gap-1">
                           {/* Mover stage button — visible on touch devices */}
                           <button
-                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setMovingId(showPicker ? null : lead.id); touchLead.current = null; touchStage.current = null; }}
                             onClick={e => { e.stopPropagation(); setMovingId(showPicker ? null : lead.id); }}
                             title="Mover a etapa"
-                            className="text-xs text-indigo-500 hover:bg-indigo-50 px-1.5 py-1 rounded-lg transition-colors border border-indigo-200 font-bold">
+                            className="text-sm text-indigo-500 hover:bg-indigo-50 h-9 min-w-9 px-2 flex items-center justify-center rounded-lg transition-colors border border-indigo-200 font-bold">
                             ⇄
                           </button>
                           {stage.id !== 'converted' && stage.id !== 'lost' && (
                             <button
-                              onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
                               onClick={e => { e.stopPropagation(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
                               title="Marcar convertido"
-                              className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors font-semibold border border-emerald-200">
+                              className="text-sm text-emerald-600 hover:bg-emerald-50 h-9 min-w-9 px-2 flex items-center justify-center rounded-lg transition-colors font-semibold border border-emerald-200">
                               ✓
                             </button>
                           )}
                           <button
-                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); if (window.confirm(`¿Eliminar a "${lead.name}"?`)) onDelete(lead.id); }}
                             onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar a "${lead.name}"?`)) onDelete(lead.id); }}
                             title="Eliminar lead"
-                            className="text-slate-300 hover:text-red-500 hover:bg-red-50 w-6 h-6 flex items-center justify-center rounded-lg transition-colors text-base leading-none border border-transparent hover:border-red-200">
+                            className="text-slate-400 hover:text-red-500 hover:bg-red-50 h-9 min-w-9 flex items-center justify-center rounded-lg transition-colors text-base leading-none border border-transparent hover:border-red-200">
                             🗑
                           </button>
                         </div>
@@ -1075,9 +1109,8 @@ const [dragging,  setDragging]  = useState(null);
                           <div className="flex flex-wrap gap-1">
                             {STAGES.filter(s => s.id !== lead.stage).map(s => (
                               <button key={s.id}
-                                onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onStageChange(lead.id, s.id); showToast(`${lead.name} → ${s.label}`, 'success'); setMovingId(null); touchLead.current = null; }}
                                 onClick={e => { e.stopPropagation(); onStageChange(lead.id, s.id); showToast(`${lead.name} → ${s.label}`, 'success'); setMovingId(null); }}
-                                className={`text-xs px-2 py-1 rounded-lg border font-semibold transition-colors ${s.pill}`}>
+                                className={`text-xs px-2.5 py-1.5 rounded-lg border font-semibold transition-colors ${s.pill}`}>
                                 {s.label}
                               </button>
                             ))}
@@ -1105,6 +1138,21 @@ const [dragging,  setDragging]  = useState(null);
           );
         })}
       </div>
+
+      {/* Sombra que sigue al dedo durante el arrastre táctil (móvil) */}
+      {touchDragLead && (
+        <div ref={ghostRef}
+          style={{ position: 'fixed', left: startXY.current.x + 'px', top: startXY.current.y + 'px', transform: 'translate(-50%,-50%)', pointerEvents: 'none', zIndex: 9999, width: '220px', opacity: 0.96 }}
+          className="bg-white rounded-xl border-2 border-indigo-500 shadow-2xl p-3">
+          <div className="flex items-center gap-2">
+            <Avatar name={touchDragLead.name} size="sm" />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-800 truncate">{touchDragLead.name}</div>
+              <div className="text-xs text-indigo-500 font-medium">Suelta sobre una columna…</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
                 {/* ── Edit Stage Labels Modal ── */}
                             {showEditStages && (
