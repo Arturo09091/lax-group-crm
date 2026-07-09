@@ -907,6 +907,7 @@ const [dragging,  setDragging]  = useState(null);
 
   // ── Arrastre táctil (móvil): pulsación mantenida → la tarjeta sigue al dedo ──
   const pressTimer = useRef(null);
+  const boardRef   = useRef(null); // contenedor del tablero (para auto-scroll durante el arrastre táctil)
   const touchDrag  = useRef({ active: false, lead: null, over: null });
   const startXY    = useRef({ x: 0, y: 0 });
   const ghostRef   = useRef(null);
@@ -920,6 +921,12 @@ const [dragging,  setDragging]  = useState(null);
     ev.preventDefault();
     const t = ev.touches[0];
     moveGhost(t.clientX, t.clientY);
+    // Auto-scroll del tablero al acercar el dedo a los bordes (para llegar a columnas fuera de pantalla)
+    const b = boardRef.current;
+    if (b) {
+      if (t.clientX > window.innerWidth - 56) b.scrollLeft += 14;
+      else if (t.clientX < 56) b.scrollLeft -= 14;
+    }
     const el  = document.elementFromPoint(t.clientX, t.clientY);
     const col = el && el.closest('[data-stage-id]');
     const sid = col ? col.getAttribute('data-stage-id') : null;
@@ -969,7 +976,7 @@ const [dragging,  setDragging]  = useState(null);
           <h1 className="text-2xl font-bold text-slate-800">Pipeline de Ventas</h1>
           <p className="text-sm text-slate-500 mt-0.5">Arrastrá las tarjetas o tocá ⇄ para cambiar de etapa</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filtrar leads..."
             className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
           <button onClick={() => onEdit(null)}
@@ -983,7 +990,7 @@ const [dragging,  setDragging]  = useState(null);
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: '72vh' }}>
+      <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-4 min-h-[40vh] sm:min-h-[72vh]">
         {STAGES.map(stage => {
           const stageLeads = byStage[stage.id] || [];
           const isTarget   = dragOver === stage.id;
@@ -1075,7 +1082,7 @@ const [dragging,  setDragging]  = useState(null);
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between mt-1">
+                      <div className="flex items-center justify-between mt-1 flex-wrap gap-y-1.5">
                         <ContactBtns lead={lead} template={waTemplate} waApp={waApp} />
                         <div className="flex items-center gap-1">
                           {/* Mover stage button — visible on touch devices */}
@@ -1122,7 +1129,7 @@ const [dragging,  setDragging]  = useState(null);
                 })}
 
                 {stageLeads.length === 0 && (
-                  <div className={`text-center py-10 text-xs text-slate-400 rounded-xl border-2 border-dashed transition-all
+                  <div className={`text-center py-10 px-3 text-xs text-slate-400 rounded-xl border-2 border-dashed transition-all
                     ${isTarget ? 'border-indigo-400 text-indigo-500' : 'border-slate-200'}`}>
                     {isTarget ? '¡Soltá aquí!' : 'Sin leads en esta etapa'}
                   </div>
