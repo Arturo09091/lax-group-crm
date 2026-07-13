@@ -902,6 +902,7 @@ const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
   const [filter,    setFilter]    = useState('');
   const [movingId,  setMovingId]  = useState(null); // id del lead con picker de stage abierto
+  const [selectedId, setSelectedId] = useState(null); // móvil: 1er toque selecciona, 2º toque abre la ficha
           const [showEditStages, setShowEditStages] = useState(false);
                   const [editLabels, setEditLabels] = useState([]);
 
@@ -1048,14 +1049,21 @@ const [dragging,  setDragging]  = useState(null);
                       onTouchEnd={e => {
                         clearTimeout(pressTimer.current);
                         if (touchDrag.current.active) { e.preventDefault(); endTouchDrag(true); return; }
-                        // toque rápido (sin arrastre): abrir ficha, salvo sobre un botón/enlace
-                        if (!e.target.closest('a, button')) onEdit(lead);
+                        if (e.target.closest('a, button')) return;
+                        // Si el dedo se movió, era un deslizamiento (scroll) → no seleccionar ni abrir.
+                        const t = e.changedTouches && e.changedTouches[0];
+                        const moved = t ? Math.abs(t.clientX - startXY.current.x) + Math.abs(t.clientY - startXY.current.y) : 0;
+                        if (moved > 10) return;
+                        // Toque deliberado: 1º selecciona (borde), 2º sobre el mismo lead abre la ficha.
+                        if (selectedId === lead.id) { setSelectedId(null); onEdit(lead); }
+                        else setSelectedId(lead.id);
                       }}
                       onTouchCancel={() => { clearTimeout(pressTimer.current); if (touchDrag.current.active) endTouchDrag(false); }}
                       onClick={e => { if (!('ontouchstart' in window) && !e.target.closest('a, button')) onEdit(lead); }}
                       className={`bg-white rounded-xl border p-3 cursor-grab active:cursor-grabbing
                         hover:shadow-md transition-all duration-150 select-none
                         ${(dragging?.id === lead.id || touchDragLead?.id === lead.id) ? 'drag-active shadow-lg opacity-40' : 'shadow-sm'}
+                        ${selectedId === lead.id ? 'ring-2 ring-indigo-500 border-indigo-400' : ''}
                         ${over ? 'border-red-200 bg-red-50' : tod ? 'border-amber-200 bg-amber-50' : 'border-slate-200'}`}>
 
                       <div className="flex items-center gap-2 mb-2">
@@ -1108,6 +1116,13 @@ const [dragging,  setDragging]  = useState(null);
                           </button>
                         </div>
                       </div>
+
+                      {/* Móvil: pista tras el primer toque (seleccionado) */}
+                      {selectedId === lead.id && (
+                        <div className="mt-1.5 text-[10px] font-semibold text-indigo-600 text-center">
+                          Toca de nuevo para abrir la ficha
+                        </div>
+                      )}
 
                       {/* Stage picker — se abre al tocar ⇄ */}
                       {showPicker && (
