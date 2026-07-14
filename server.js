@@ -838,6 +838,7 @@ app.post('/api/webhook/:key', async (req, res) => {
               phone: trunc(b.phone, 30), email: trunc(b.email, 120),
               source: trunc(b.source, 60) || 'Facebook Ads',
               campaign: trunc(b.campaign, 120), adSet: trunc(b.adSet, 120),
+              adName: trunc(b.adName || b.ad_name || b.ad || b.anuncio || b.utm_content, 120),
               stage: 'new', notes: trunc(b.notes, 1000),
               createdAt: b.createdAt || todayISO(), followUpDate: tomorrowISO(),
               value: Number(b.value) || 0,

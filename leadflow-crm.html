@@ -312,7 +312,7 @@ function LeadModal({ lead, onSave, onClose }) {
   const isNew = !lead?.id;
   const [form, setForm] = useState(() => lead?.id ? { ...lead } : {
     name: '', phone: '', email: '', source: 'Facebook Ads',
-    campaign: '', adSet: '', stage: 'new', notes: '',
+    campaign: '', adSet: '', adName: '', stage: 'new', notes: '',
     createdAt: todayISO(), followUpDate: todayISO(), value: '',
   });
 
@@ -365,6 +365,11 @@ function LeadModal({ lead, onSave, onClose }) {
           <Field label="Conjunto de anuncios">
             <input value={form.adSet} onChange={e => set('adSet', e.target.value)}
               className={inputCls} placeholder="Ad Set o segmentación" />
+          </Field>
+
+          <Field label="Anuncio">
+            <input value={form.adName || ''} onChange={e => set('adName', e.target.value)}
+              className={inputCls} placeholder="Nombre del anuncio (UTM)" />
           </Field>
 
           <Field label="Valor potencial (€)">
@@ -563,6 +568,8 @@ const CSV_COL_MAP = {
   campaign:'campaign', campaña:'campaign', campania:'campaign',
   // adset
   adset:'adSet', 'ad set':'adSet', conjunto:'adSet',
+  // ad (anuncio)
+  ad:'adName', anuncio:'adName', 'ad name':'adName', 'nombre del anuncio':'adName', utm_content:'adName',
   // stage
   stage:'stage', etapa:'stage',
   // value
@@ -742,7 +749,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
     .filter(l => {
       if (!search) return true;
       const q = search.toLowerCase();
-      return [l.name, l.email, l.phone, l.campaign, l.source, l.adSet].some(v => (v || '').toLowerCase().includes(q));
+      return [l.name, l.email, l.phone, l.campaign, l.source, l.adSet, l.adName].some(v => (v || '').toLowerCase().includes(q));
     })
     .sort((a, b) => {
       let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
@@ -752,8 +759,8 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
     }), [leads, filterStage, filterSrc, search, sortCol, sortDir]);
 
   const exportCSV = () => {
-    const cols  = ['name','phone','email','source','campaign','adSet','stage','value','createdAt','followUpDate','notes'];
-    const heads = ['Nombre','Teléfono','Email','Fuente','Campaña','Ad Set','Etapa','Valor','Fecha entrada','Próx. contacto','Notas'];
+    const cols  = ['name','phone','email','source','campaign','adSet','adName','stage','value','createdAt','followUpDate','notes'];
+    const heads = ['Nombre','Teléfono','Email','Fuente','Campaña','Ad Set','Anuncio','Etapa','Valor','Fecha entrada','Próx. contacto','Notas'];
     const rows  = filtered.map(l => cols.map(c => `"${(l[c]||'').toString().replace(/"/g,'""')}"`).join(','));
     const csv   = [heads.join(','), ...rows].join('\n');
     const a     = document.createElement('a');
@@ -2373,6 +2380,7 @@ function App() {
       source: r.source || 'Otro',
       campaign: r.campaign || '',
       adSet: r.adSet || '',
+      adName: r.adName || '',
       stage: stageIds.includes(r.stage)
         ? r.stage
         : (STAGES.find(s => s.label.toLowerCase() === (r.stage||'').toLowerCase())?.id || 'new'),
