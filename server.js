@@ -79,8 +79,9 @@ async function initDB() {
                           )
                             `);
       // Meta Conversions API config per client
-  // Drop and recreate meta_pixel_config to ensure clean schema
-  await pool.query(`DROP TABLE IF EXISTS meta_pixel_config`).catch(()=>{});
+  // NUNCA hacer DROP aquí: initDB() corre en CADA arranque, así que un DROP
+  // borraba el pixel/token de todos los clientes en cada deploy y la API de
+  // Conversiones dejaba de disparar en silencio. La tabla es persistente.
   await pool.query(`
       CREATE TABLE IF NOT EXISTS meta_pixel_config (
             username     TEXT PRIMARY KEY,
