@@ -42,22 +42,98 @@
     .drag-active { opacity:.45 !important; transform:scale(.97); }
     .drop-target { outline:2px dashed #0000ff !important; background:#e8eaff !important; }
 
-    /* ── Modo oscuro: overrides de utilidades Tailwind (sin tocar el JSX) ── */
+    /* ══ MODO OSCURO ══════════════════════════════════════════════════════
+       Regla de oro: si se oscurece un fondo, hay que aclarar SU texto y SU
+       borde. Antes solo se aclaraban los textos y los fondos de color (los
+       bg-*-50) seguían claros → texto claro sobre fondo claro = ilegible.
+       Todos los pares fondo/texto/borde se cambian aquí a la vez.
+       Contraste objetivo: ≥ 4.5:1 (WCAG AA) en todo texto. */
+
+    /* ── Superficies ── */
     .dark body, .dark .bg-slate-50 { background-color:#0b1120 !important; }
     .dark .bg-white { background-color:#172033 !important; }
     .dark .bg-slate-100, .dark .bg-gray-50 { background-color:#1f2a44 !important; }
+    .dark .bg-slate-200 { background-color:#2a3650 !important; }
     .dark .hover\:bg-slate-50:hover { background-color:#1f2a44 !important; }
     .dark .hover\:bg-slate-100:hover { background-color:#27324d !important; }
-    .dark .text-slate-800, .dark .text-slate-700 { color:#e8ecf5 !important; }
-    .dark .text-slate-600 { color:#cbd3e1 !important; }
-    .dark .text-slate-500 { color:#9aa3b8 !important; }
-    .dark .text-slate-400 { color:#7e8aa3 !important; }
-    .dark .border, .dark .border-slate-200, .dark .border-slate-100 { border-color:#2a3650 !important; }
+    .dark .hover\:bg-slate-200:hover { background-color:#323e5c !important; }
+
+    /* ── Texto neutro ── */
+    .dark .text-slate-800, .dark .text-slate-700, .dark .text-gray-800 { color:#eef2f9 !important; }
+    .dark .text-slate-600, .dark .text-gray-300 { color:#c9d2e3 !important; }
+    .dark .text-slate-500, .dark .text-gray-400 { color:#a7b1c6 !important; }
+    .dark .text-slate-400 { color:#98a3bb !important; }
+    .dark .text-slate-300 { color:#c9d2e3 !important; }
+
+    /* ── Bordes neutros ── */
+    .dark .border, .dark .border-slate-200, .dark .border-slate-100 { border-color:#2f3c58 !important; }
+    .dark .border-slate-300 { border-color:#3d4b6b !important; }
     .dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color:#27324d !important; }
-    .dark input, .dark select, .dark textarea { color:#e8ecf5 !important; }
-    .dark ::placeholder { color:#6b7689 !important; }
-    .dark ::-webkit-scrollbar-thumb { background:#334155; }
-    .dark .drop-target { background:#1f2a44 !important; }
+
+    /* ── Fondos de color: se oscurecen manteniendo el tono ── */
+    .dark .bg-indigo-50  { background-color:#1a2050 !important; }
+    .dark .bg-indigo-100 { background-color:#232a68 !important; }
+    .dark .bg-red-50     { background-color:#3a1a20 !important; }
+    .dark .bg-red-100    { background-color:#4a2028 !important; }
+    .dark .bg-amber-50   { background-color:#3a2a12 !important; }
+    .dark .bg-amber-100  { background-color:#4a3618 !important; }
+    .dark .bg-yellow-50  { background-color:#3a3312 !important; }
+    .dark .bg-yellow-100 { background-color:#4a4118 !important; }
+    .dark .bg-emerald-50 { background-color:#0f3529 !important; }
+    .dark .bg-emerald-100{ background-color:#144534 !important; }
+    .dark .bg-green-50   { background-color:#0f3529 !important; }
+    .dark .bg-green-100  { background-color:#144534 !important; }
+    .dark .bg-blue-50    { background-color:#12283f !important; }
+    .dark .bg-blue-100   { background-color:#17334f !important; }
+    .dark .bg-purple-50  { background-color:#2b1a44 !important; }
+    .dark .bg-purple-100 { background-color:#372255 !important; }
+    .dark .bg-orange-50  { background-color:#3b2413 !important; }
+    .dark .bg-orange-100 { background-color:#4b2e18 !important; }
+    .dark .hover\:bg-indigo-50:hover  { background-color:#232a68 !important; }
+    .dark .hover\:bg-red-50:hover     { background-color:#4a2028 !important; }
+    .dark .hover\:bg-emerald-50:hover { background-color:#144534 !important; }
+    .dark .hover\:bg-amber-50:hover   { background-color:#4a3618 !important; }
+    .dark .bg-red-900\/50 { background-color:#4a2028 !important; }
+
+    /* ── Texto de color: versiones claras, el tono se reconoce igual ── */
+    .dark .text-indigo-800, .dark .text-indigo-700, .dark .text-indigo-600,
+    .dark .text-indigo-500 { color:#93a1ff !important; }
+    .dark .text-red-800, .dark .text-red-700, .dark .text-red-600 { color:#fca5a5 !important; }
+    .dark .text-red-500, .dark .text-red-400 { color:#f88b8b !important; }
+    .dark .text-emerald-800, .dark .text-emerald-700, .dark .text-emerald-600 { color:#6ee7b7 !important; }
+    .dark .text-green-800, .dark .text-green-700, .dark .text-green-600 { color:#86efac !important; }
+    .dark .text-amber-800, .dark .text-amber-700, .dark .text-amber-600 { color:#fcd34d !important; }
+    .dark .text-yellow-800, .dark .text-yellow-700, .dark .text-yellow-600 { color:#fde047 !important; }
+    .dark .text-blue-800, .dark .text-blue-700, .dark .text-blue-600 { color:#93c5fd !important; }
+    .dark .text-purple-800, .dark .text-purple-700, .dark .text-purple-600 { color:#d8b4fe !important; }
+    .dark .text-orange-800, .dark .text-orange-700, .dark .text-orange-600 { color:#fdba74 !important; }
+
+    /* ── Bordes de color ── */
+    .dark .border-indigo-200, .dark .border-indigo-100 { border-color:#333c85 !important; }
+    .dark .border-red-200, .dark .border-red-100 { border-color:#6b3038 !important; }
+    .dark .border-emerald-200, .dark .border-emerald-100 { border-color:#1d5b47 !important; }
+    .dark .border-amber-200, .dark .border-amber-100 { border-color:#5f4a22 !important; }
+    .dark .border-blue-200, .dark .border-blue-100 { border-color:#294767 !important; }
+    .dark .border-purple-200 { border-color:#472e69 !important; }
+    .dark .border-yellow-200 { border-color:#5f5422 !important; }
+    .dark .border-b-2, .dark .border-t, .dark .border-b { border-color:#2f3c58 !important; }
+
+    /* ── Pastillas de etapa (color propio de cada columna) ──
+       Llevan el color en línea, así que el modo oscuro usa la variante clara
+       que el propio elemento ya trae calculada. */
+    .dark [style*="--pc-lite"] {
+      color: var(--pc-lite) !important;
+      background-color: var(--pc-bg-dark) !important;
+    }
+
+    /* ── Formularios y varios ── */
+    .dark input, .dark select, .dark textarea { color:#eef2f9 !important; }
+    .dark ::placeholder { color:#8590a6 !important; }
+    .dark ::-webkit-scrollbar-thumb { background:#3d4b6b; }
+    .dark .drop-target { background:#1f2a44 !important; outline-color:#6675ff !important; }
+    .dark .shadow-sm, .dark .shadow-md, .dark .shadow-lg, .dark .shadow-xl, .dark .shadow-2xl {
+      box-shadow: 0 4px 14px rgba(0,0,0,.45) !important;
+    }
 
     /* ── PDF / Print styles ── */
     @media print {
@@ -138,7 +214,29 @@ const hexA = (hex, a) => {
   const n = parseInt(h.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
-const pillStyle = c => ({ backgroundColor: hexA(c, 0.14), color: c, borderColor: hexA(c, 0.38) });
+// Versión aclarada del color (mezcla con blanco) para que se lea sobre fondo
+// oscuro: un #0000ff sobre negro es ilegible, un #7d8cff se lee perfectamente.
+const lighten = (hex, amt) => {
+  const h = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex : '#64748b';
+  const n = parseInt(h.slice(1), 16);
+  const mix = v => Math.round(v + (255 - v) * amt);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+};
+/* Se emiten AMBAS versiones como variables CSS y el modo oscuro elige la clara.
+   Así el color correcto se aplica al instante al cambiar de tema, sin depender
+   de que el componente se vuelva a renderizar. */
+const darken = (hex, amt) => {
+  const h = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex : '#64748b';
+  const n = parseInt(h.slice(1), 16);
+  const mix = v => Math.round(v * (1 - amt));
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+};
+const pillStyle = c => ({
+  '--pc-dark': darken(c, 0.48),   // texto en modo claro (sobre tinte suave)
+  '--pc-lite': lighten(c, 0.55),  // texto en modo oscuro
+  '--pc-bg': hexA(c, 0.14), '--pc-bg-dark': hexA(c, 0.24),
+  backgroundColor: 'var(--pc-bg)', color: 'var(--pc-dark)', borderColor: hexA(c, 0.38),
+});
 const barStyle  = c => ({ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(c || '') ? c : '#64748b' });
 
 /* Contexto de etapas: las etapas llegan del servidor DESPUÉS del primer render
@@ -1452,7 +1550,7 @@ function RemindersView({ leads, onEdit, waTemplate, waApp }) {
     <div>
       <h3 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
         {title}
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${items.length > 0 && urgency === 'overdue' ? 'bg-red-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${items.length > 0 && urgency === 'overdue' ? 'bg-red-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
           {items.length}
         </span>
       </h3>
@@ -2053,7 +2151,7 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
               </span>
               {item.badge > 0 && (
                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center
-                  ${view === item.id ? 'bg-white/25 text-white' : 'bg-red-500 text-white'}`}>
+                  ${view === item.id ? 'bg-white/25 text-white' : 'bg-red-700 text-white'}`}>
                   {item.badge}
                 </span>
               )}
