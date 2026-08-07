@@ -89,7 +89,7 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef, useCallback, useMemo, useContext } = React;
 
 /* ═══════════════════════ ERROR BOUNDARY ═════════════════════════ */
 class ErrorBoundary extends React.Component {
@@ -115,15 +115,56 @@ class ErrorBoundary extends React.Component {
 
 /* ═══════════════════════════ CONSTANTS ═══════════════════════════ */
 
-const STAGES = [
-  { id:'new',       label:'Nuevo Lead',        color:'blue',   pill:'bg-blue-100 text-blue-700 border-blue-200',   bar:'bg-blue-500'   },
-  { id:'contacted', label:'Contactado',         color:'yellow', pill:'bg-yellow-100 text-yellow-700 border-yellow-200', bar:'bg-yellow-500' },
-  { id:'following', label:'En Seguimiento',     color:'orange', pill:'bg-orange-100 text-orange-700 border-orange-200', bar:'bg-orange-500' },
-  { id:'proposal',  label:'Propuesta Enviada',  color:'purple', pill:'bg-purple-100 text-purple-700 border-purple-200', bar:'bg-purple-500' },
-  { id:'converted', label:'Convertido',         color:'green',  pill:'bg-green-100 text-green-700 border-green-200',  bar:'bg-green-500'  },
-  { id:'lost',      label:'Perdido',            color:'red',    pill:'bg-red-100 text-red-600 border-red-200',       bar:'bg-red-400'    },
+/* Etapas por defecto. Son solo el punto de partida y el respaldo mientras el
+   servidor responde: cada cliente puede tener N columnas propias.
+   Los ids 'new', 'converted' y 'lost' son del sistema (renombrables y
+   reordenables, no borrables): sostienen la entrada de leads y las métricas. */
+const DEFAULT_STAGES = [
+  { id:'new',       label:'Nuevo Lead',        position:0, color:'#3b82f6', isWon:false, isLost:false, isEntry:true  },
+  { id:'contacted', label:'Contactado',        position:1, color:'#eab308', isWon:false, isLost:false, isEntry:false },
+  { id:'following', label:'En Seguimiento',    position:2, color:'#f97316', isWon:false, isLost:false, isEntry:false },
+  { id:'proposal',  label:'Propuesta Enviada', position:3, color:'#a855f7', isWon:false, isLost:false, isEntry:false },
+  { id:'converted', label:'Convertido',        position:4, color:'#22c55e', isWon:true,  isLost:false, isEntry:false },
+  { id:'lost',      label:'Perdido',           position:5, color:'#ef4444', isWon:false, isLost:true,  isEntry:false },
 ];
-const STAGE = Object.fromEntries(STAGES.map(s => [s.id, s]));
+const PROTECTED_STAGE_IDS = ['new', 'converted', 'lost'];
+const MAX_STAGES = 30;
+
+/* Color por etapa en estilo EN LÍNEA (hex), no clases de Tailwind: el build de
+   navegador no genera clases construidas al vuelo (bg-${color}-100), así que
+   una columna creada por el usuario se quedaría sin estilo. */
+const hexA = (hex, a) => {
+  const h = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex : '#64748b';
+  const n = parseInt(h.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+const pillStyle = c => ({ backgroundColor: hexA(c, 0.14), color: c, borderColor: hexA(c, 0.38) });
+const barStyle  = c => ({ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(c || '') ? c : '#64748b' });
+
+/* Contexto de etapas: las etapas llegan del servidor DESPUÉS del primer render
+   y cambian en caliente al guardar, así que tienen que vivir en estado de React
+   (una variable de módulo no dispararía el repintado). */
+const StagesCtx = React.createContext(null);
+const useStages = () => useContext(StagesCtx) || buildStagesCtx(DEFAULT_STAGES);
+
+function buildStagesCtx(stages, save) {
+  const list    = Array.isArray(stages) && stages.length ? stages : DEFAULT_STAGES;
+  const byId    = Object.fromEntries(list.map(s => [s.id, s]));
+  const wonIds  = list.filter(s => s.isWon).map(s => s.id);
+  const lostIds = list.filter(s => s.isLost).map(s => s.id);
+  const closed  = new Set([...wonIds, ...lostIds]);
+  const entry   = list.find(s => s.isEntry) || list[0];
+  return {
+    stages: list, byId, wonIds, lostIds,
+    entryId:  entry ? entry.id : 'new',
+    isClosed: id => closed.has(id),
+    isWon:    id => wonIds.includes(id),
+    isLost:   id => lostIds.includes(id),
+    label:    id => (byId[id] ? byId[id].label : id),
+    color:    id => (byId[id] ? byId[id].color : '#64748b'),
+    save,
+  };
+}
 
 const SOURCES = [
   'Facebook Ads', 'Instagram Ads', 'Facebook + Instagram',
@@ -143,7 +184,15 @@ function Field({ label, children, span }) {
   );
 }
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+/* Fecha local (NO UTC): con toISOString, entre las 00:00 y las 02:00 en España
+   la fecha salía del día anterior y los leads se guardaban con fecha errónea. */
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayISO = () => isoLocal(new Date());
+const addDays  = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); return isoLocal(new Date(y, m - 1, d + n)); };
+const dayCount = (a, b) => Math.round((Date.parse(b + 'T00:00:00') - Date.parse(a + 'T00:00:00')) / 86400000) + 1;
+const mondayOf = iso => { const [y, m, d] = iso.split('-').map(Number); const dt = new Date(y, m - 1, d); return addDays(iso, -((dt.getDay() + 6) % 7)); };
+const startOfMonth = iso => iso.slice(0, 7) + '-01';
+const endOfMonth   = iso => { const [y, m] = iso.split('-').map(Number); return isoLocal(new Date(y, m, 0)); };
 const uid      = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 const fmtDate  = d => {
@@ -220,11 +269,16 @@ function Icon({ name, size = 18, strokeWidth = 2, className = '' }) {
 }
 
 function StagePill({ stageId, sm }) {
-  const s = STAGE[stageId] || STAGES[0];
+  const { byId } = useStages();
+  const s = byId[stageId];
+  // Si la etapa ya no existe NO mentimos diciendo "Nuevo Lead": se marca como
+  // desconocida para que el lead se pueda localizar y recolocar.
+  const style = s ? pillStyle(s.color) : pillStyle('#94a3b8');
   return (
-    <span className={`inline-flex items-center border rounded-full font-medium whitespace-nowrap
-      ${sm ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1'} ${s.pill}`}>
-      {s.label}
+    <span style={style}
+      className={`inline-flex items-center border rounded-full font-medium whitespace-nowrap
+      ${sm ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1'}`}>
+      {s ? s.label : `⚠ ${stageId || 'Sin etapa'}`}
     </span>
   );
 }
@@ -309,10 +363,11 @@ function Avatar({ name, size = 'md' }) {
 /* ═══════════════════════════ LEAD MODAL ════════════════════════ */
 
 function LeadModal({ lead, onSave, onClose }) {
+  const { stages, byId, entryId } = useStages();
   const isNew = !lead?.id;
   const [form, setForm] = useState(() => lead?.id ? { ...lead } : {
     name: '', phone: '', email: '', source: 'Facebook Ads',
-    campaign: '', adSet: '', adName: '', stage: 'new', notes: '',
+    campaign: '', adSet: '', adName: '', stage: entryId, notes: '',
     createdAt: todayISO(), followUpDate: todayISO(), value: '',
   });
 
@@ -379,7 +434,12 @@ function LeadModal({ lead, onSave, onClose }) {
 
           <Field label="Etapa del pipeline">
             <select value={form.stage} onChange={e => set('stage', e.target.value)} className={inputCls}>
-              {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {/* Si el lead está en una etapa que ya no existe, la mostramos
+                  deshabilitada para no reasignarlo sin querer al guardar. */}
+              {form.stage && !byId[form.stage] && (
+                <option value={form.stage} disabled>⚠ Etapa desconocida: {form.stage}</option>
+              )}
+              {stages.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           </Field>
 
@@ -418,16 +478,19 @@ function LeadModal({ lead, onSave, onClose }) {
 /* ═══════════════════════════ DASHBOARD ══════════════════════════ */
 
 function Dashboard({ leads, onEdit, onOpenNew, goTo }) {
+  const { stages, byId, isClosed, isWon, isLost } = useStages();
   const total     = leads.length;
-  const converted = leads.filter(l => l.stage === 'converted').length;
-  const active    = leads.filter(l => !['converted','lost'].includes(l.stage)).length;
+  const converted = leads.filter(l => isWon(l.stage)).length;
+  const active    = leads.filter(l => !isClosed(l.stage)).length;
   const convRate  = total ? Math.round(converted / total * 100) : 0;
-  const potVal    = leads.filter(l => l.stage !== 'lost').reduce((s, l) => s + (+l.value || 0), 0);
+  const potVal    = leads.filter(l => !isLost(l.stage)).reduce((s, l) => s + (+l.value || 0), 0);
 
-  const overdueLeads = leads.filter(l => isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage));
-  const todayLeads   = leads.filter(l => isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage));
-  const recent       = [...leads].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
-  const stageCounts  = Object.fromEntries(STAGES.map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
+  const overdueLeads = leads.filter(l => isOverdue(l.followUpDate) && !isClosed(l.stage));
+  const todayLeads   = leads.filter(l => isToday(l.followUpDate)   && !isClosed(l.stage));
+  // (a.createdAt||'') — un lead sin fecha de alta tumbaba el Dashboard entero
+  const recent       = [...leads].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 6);
+  const stageCounts  = Object.fromEntries(stages.map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
+  const orphanCount  = leads.filter(l => !byId[l.stage]).length;
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 anim-fade">
@@ -481,19 +544,31 @@ function Dashboard({ leads, onEdit, onOpenNew, goTo }) {
         <div className="lg:col-span-3 bg-white border rounded-xl p-5">
           <h3 className="font-semibold text-slate-700 mb-4">Leads por Etapa</h3>
           <div className="space-y-3.5">
-            {STAGES.map(s => {
+            {stages.map(s => {
               const count = stageCounts[s.id] || 0;
               const pct   = total ? Math.round(count / total * 100) : 0;
               return (
                 <div key={s.id} className="flex items-center gap-3">
                   <span className="text-xs text-slate-500 w-36 truncate">{s.label}</span>
                   <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div className={`h-full rounded-full transition-all duration-700 ${s.bar}`} style={{ width: `${pct}%` }} />
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{ ...barStyle(s.color), width: `${pct}%` }} />
                   </div>
                   <span className="text-xs font-semibold text-slate-600 w-14 text-right">{count} ({pct}%)</span>
                 </div>
               );
             })}
+            {/* Leads cuya etapa ya no existe: si no se listaran, los porcentajes no sumarían 100 */}
+            {orphanCount > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-amber-600 w-36 truncate font-medium">⚠ Sin etapa</span>
+                <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ ...barStyle('#94a3b8'), width: `${total ? Math.round(orphanCount / total * 100) : 0}%` }} />
+                </div>
+                <span className="text-xs font-semibold text-slate-600 w-14 text-right">{orphanCount}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -612,6 +687,7 @@ function parseCSV(text) {
 }
 
 function CSVImportModal({ onImport, onClose }) {
+  const { stages, entryId, label } = useStages();
   const [step,     setStep]     = useState('upload');  // 'upload' | 'preview'
   const [rows,     setRows]     = useState([]);
   const [filename, setFilename] = useState('');
@@ -696,9 +772,17 @@ function CSVImportModal({ onImport, onClose }) {
                       <td className="px-4 py-2 text-slate-500">{r.email || '—'}</td>
                       <td className="px-4 py-2 text-slate-500">{r.source || '—'}</td>
                       <td className="px-4 py-2">
-                        {r.stage
-                          ? <StagePill stageId={STAGES.find(s => s.id === r.stage || s.label.toLowerCase() === (r.stage||'').toLowerCase())?.id || 'new'} sm />
-                          : <StagePill stageId="new" sm />}
+                        {(() => {
+                          const match = r.stage && stages.find(s => s.id === r.stage ||
+                            s.label.toLowerCase() === String(r.stage).toLowerCase());
+                          // Si la etapa del CSV no existe se avisa aquí, en vez de
+                          // mostrarla como "Nuevo Lead" y que el usuario no se entere.
+                          return match
+                            ? <StagePill stageId={match.id} sm />
+                            : r.stage
+                              ? <span className="text-xs text-amber-600 font-medium" title={`Entrará en "${label(entryId)}"`}>⚠ {r.stage}</span>
+                              : <StagePill stageId={entryId} sm />;
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -725,6 +809,7 @@ function CSVImportModal({ onImport, onClose }) {
 /* ═══════════════════════════ LEADS TABLE ════════════════════════ */
 
 function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast, waTemplate, waApp }) {
+  const { stages, byId, isClosed } = useStages();
   const [search,      setSearch]      = useState('');
   const [filterStage, setFilterStage] = useState('all');
   const [filterSrc,   setFilterSrc]   = useState('all');
@@ -744,7 +829,9 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
   };
 
   const filtered = useMemo(() => leads
-    .filter(l => filterStage === 'all' || l.stage === filterStage)
+    .filter(l => filterStage === 'all' ? true
+               : filterStage === '__orphan__' ? !byId[l.stage]
+               : l.stage === filterStage)
     .filter(l => filterSrc   === 'all' || l.source === filterSrc)
     .filter(l => {
       if (!search) return true;
@@ -756,7 +843,7 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
       if (sortCol === 'value') { va = +va; vb = +vb; }
       const c = va < vb ? -1 : va > vb ? 1 : 0;
       return sortDir === 'asc' ? c : -c;
-    }), [leads, filterStage, filterSrc, search, sortCol, sortDir]);
+    }), [leads, filterStage, filterSrc, search, sortCol, sortDir, byId]);
 
   const exportCSV = () => {
     const cols  = ['name','phone','email','source','campaign','adSet','adName','stage','value','createdAt','followUpDate','notes'];
@@ -813,7 +900,8 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
         <select value={filterStage} onChange={e => setFilterStage(e.target.value)}
           className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
           <option value="all">Todas las etapas</option>
-          {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {stages.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {leads.some(l => !byId[l.stage]) && <option value="__orphan__">⚠ Sin etapa</option>}
         </select>
         <select value={filterSrc} onChange={e => setFilterSrc(e.target.value)}
           className="border border-slate-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
@@ -846,8 +934,8 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
                   </div>
                 </td></tr>
               ) : filtered.slice(0, visibleCount).map(l => {
-                const over  = isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage);
-                const tod   = isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage);
+                const over  = isOverdue(l.followUpDate) && !isClosed(l.stage);
+                const tod   = isToday(l.followUpDate)   && !isClosed(l.stage);
                 return (
                   <tr key={l.id} onClick={(e) => { if (e.target.closest('a, button')) return; onEdit(l); }}
                     className="hover:bg-slate-50 cursor-pointer transition-colors">
@@ -901,17 +989,133 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast
   );
 }
 
+/* ══════════════════ GESTOR DE COLUMNAS DEL PIPELINE ═════════════ */
+
+const STAGE_PALETTE = ['#3b82f6','#0ea5e9','#14b8a6','#22c55e','#84cc16','#eab308',
+                       '#f97316','#ef4444','#ec4899','#a855f7','#6366f1','#64748b'];
+
+function StagesManagerModal({ leads, showToast, onClose }) {
+  const { stages, save } = useStages();
+  const [draft,   setDraft]   = useState(() => stages.map(s => ({ ...s })));
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState('');
+  const [blocked, setBlocked] = useState({});   // stageId → nº de leads que lo impiden
+
+  // Cuántos leads hay en cada columna (para no dejar borrar las que tienen)
+  const counts = useMemo(() => {
+    const c = {};
+    leads.forEach(l => { c[l.stage] = (c[l.stage] || 0) + 1; });
+    return c;
+  }, [leads]);
+
+  const isProtected = id => PROTECTED_STAGE_IDS.includes(id);
+  const setRow = (i, patch) => setDraft(d => d.map((s, j) => j === i ? { ...s, ...patch } : s));
+  const move = (i, dir) => setDraft(d => {
+    const j = i + dir;
+    if (j < 0 || j >= d.length) return d;
+    const n = [...d]; [n[i], n[j]] = [n[j], n[i]]; return n;
+  });
+  const addStage = () => setDraft(d => [...d, {
+    // Id siempre nuevo y aleatorio: si se reutilizara el de una columna borrada,
+    // una regla vieja de Meta podría revivir y disparar conversiones falsas.
+    id: 'st_' + Math.random().toString(36).slice(2, 9),
+    label: '', color: STAGE_PALETTE[d.length % STAGE_PALETTE.length],
+    isWon: false, isLost: false, isEntry: false,
+  }]);
+  const removeRow = i => setDraft(d => d.filter((_, j) => j !== i));
+
+  const invalid = draft.some(s => !String(s.label || '').trim() || String(s.label).trim().length > 40);
+
+  const handleSave = async () => {
+    setError(''); setBlocked({}); setSaving(true);
+    const res = await save(draft.map((s, i) => ({ id: s.id, label: String(s.label).trim(), color: s.color, position: i })));
+    setSaving(false);
+    if (res && res.ok) { showToast(res.msg || 'Columnas actualizadas', 'success'); onClose(); return; }
+    // Error: el modal NO se cierra y se marca en rojo lo que lo impide
+    setError((res && res.error) || 'No se pudo guardar');
+    if (res && Array.isArray(res.blocked)) {
+      const b = {}; res.blocked.forEach(x => { b[x.stage] = x.count; }); setBlocked(b);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-slate-800">Columnas del pipeline</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Crea, renombra, reordena y colorea. Hasta {MAX_STAGES}.</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl w-8 h-8 rounded-lg hover:bg-slate-100">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {draft.map((s, i) => {
+            const n = counts[s.id] || 0;
+            const prot = isProtected(s.id);
+            return (
+              <div key={s.id} className={`flex items-center gap-2 p-2 rounded-xl border ${blocked[s.id] ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
+                <div className="flex flex-col">
+                  <button onClick={() => move(i, -1)} disabled={i === 0}
+                    className="text-slate-400 hover:text-indigo-600 disabled:opacity-25 text-xs leading-none px-1">▲</button>
+                  <button onClick={() => move(i, 1)} disabled={i === draft.length - 1}
+                    className="text-slate-400 hover:text-indigo-600 disabled:opacity-25 text-xs leading-none px-1">▼</button>
+                </div>
+                <input type="color" value={s.color || '#64748b'} onChange={e => setRow(i, { color: e.target.value })}
+                  title="Color de la columna"
+                  className="w-8 h-8 rounded cursor-pointer border border-slate-200 flex-shrink-0 p-0.5 bg-white" />
+                <input value={s.label} onChange={e => setRow(i, { label: e.target.value })}
+                  placeholder="Nombre de la columna" maxLength={40}
+                  className={`flex-1 min-w-0 border rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400
+                    ${!String(s.label || '').trim() ? 'border-red-300' : 'border-slate-200'}`} />
+                <span className="text-xs text-slate-400 w-16 text-right flex-shrink-0">{n} lead{n === 1 ? '' : 's'}</span>
+                {prot ? (
+                  <span title="Columna del sistema: se puede renombrar y mover, pero no borrar" className="w-7 text-center text-slate-300">🔒</span>
+                ) : (
+                  <button onClick={() => removeRow(i)} disabled={n > 0}
+                    title={n > 0 ? `Mueve primero sus ${n} leads` : 'Eliminar columna'}
+                    className="w-7 text-slate-400 hover:text-red-500 disabled:opacity-25 disabled:cursor-not-allowed">✕</button>
+                )}
+              </div>
+            );
+          })}
+
+          <button onClick={addStage} disabled={draft.length >= MAX_STAGES}
+            className="w-full border-2 border-dashed border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-400 rounded-xl py-2.5 text-sm font-semibold transition-colors disabled:opacity-40">
+            ➕ Añadir columna
+          </button>
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-3 py-2">{error}</div>}
+          <p className="text-xs text-slate-400 leading-relaxed">
+            🔒 <strong>Nuevo Lead</strong>, <strong>Convertido</strong> y <strong>Perdido</strong> se pueden renombrar y mover,
+            pero no borrar: sostienen la entrada de leads desde Meta y las métricas de los informes.
+            Las columnas nuevas se pueden asignar a eventos de la API de Conversiones desde el panel de administrador.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 border-t flex gap-2">
+          <button onClick={onClose} className="flex-1 border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-sm py-2.5 rounded-xl">Cancelar</button>
+          <button onClick={handleSave} disabled={saving || invalid}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm py-2.5 rounded-xl disabled:opacity-50">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════ PIPELINE ═══════════════════════════ */
 
-function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast, stageLabels = [], onSaveStageLabels, waTemplate, waApp }) {
-    const getSL = (id) => { const f = stageLabels.find(s => s.id === id); return f ? f.label : (STAGE[id] ? STAGE[id].label : id); };  
+function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast, waTemplate, waApp }) {
+  const { stages, byId, isClosed, wonIds } = useStages();
+  const getSL = (id) => (byId[id] ? byId[id].label : id);
 const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
   const [filter,    setFilter]    = useState('');
   const [movingId,  setMovingId]  = useState(null); // id del lead con picker de stage abierto
   const [selectedId, setSelectedId] = useState(null); // móvil: 1er toque selecciona, 2º toque abre la ficha
-          const [showEditStages, setShowEditStages] = useState(false);
-                  const [editLabels, setEditLabels] = useState([]);
+  const [showEditStages, setShowEditStages] = useState(false);
 
   // ── Arrastre táctil (móvil): pulsación mantenida → la tarjeta sigue al dedo ──
   const pressTimer = useRef(null);
@@ -974,7 +1178,14 @@ const [dragging,  setDragging]  = useState(null);
                         (l.campaign || '').toLowerCase().includes(filter.toLowerCase()))
     : leads, [leads, filter]);
 
-  const byStage = useMemo(() => Object.fromEntries(STAGES.map(s => [s.id, filtered.filter(l => l.stage === s.id)])), [filtered]);
+  const byStage = useMemo(() => Object.fromEntries(stages.map(s => [s.id, filtered.filter(l => l.stage === s.id)])), [filtered, stages]);
+  // Leads cuya etapa ya no existe: se muestran en una columna aparte para
+  // poder recolocarlos, en vez de desaparecer del tablero.
+  const orphans = useMemo(() => filtered.filter(l => !byId[l.stage]), [filtered, byId]);
+  const columns = useMemo(
+    () => orphans.length ? [...stages, { id: '__orphan__', label: '⚠ Sin etapa', color: '#94a3b8', orphan: true }] : stages,
+    [stages, orphans.length]
+  );
 
   return (
     <>
@@ -991,16 +1202,16 @@ const [dragging,  setDragging]  = useState(null);
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm flex items-center gap-1.5">
             <Icon name="plus" size={16} /> Nuevo lead
           </button>
-                          <button onClick={() => { setEditLabels(stageLabels.map(s => ({...s}))); setShowEditStages(true); }}
-                                              className="border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
-                                                                  ✏️ Personalizar etapas
-                                                                                  </button>
+          <button onClick={() => setShowEditStages(true)}
+            className="border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
+            ⚙️ Columnas
+          </button>
         </div>
       </div>
 
       <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-4 min-h-[40vh] sm:min-h-[72vh]">
-        {STAGES.map(stage => {
-          const stageLeads = byStage[stage.id] || [];
+        {columns.map(stage => {
+          const stageLeads = stage.orphan ? orphans : (byStage[stage.id] || []);
           const isTarget   = dragOver === stage.id;
           return (
             <div key={stage.id}
@@ -1021,8 +1232,9 @@ const [dragging,  setDragging]  = useState(null);
 
               {/* Column header */}
               <div className="p-3 flex items-center justify-between">
-                <div className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg ${stage.pill} border`}>
-                                  {getSL(stage.id)}
+                <div style={pillStyle(stage.color)}
+                  className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg border truncate">
+                  {stage.orphan ? stage.label : getSL(stage.id)}
                 </div>
                 <span className="bg-white border text-xs font-bold px-2 py-0.5 rounded-full text-slate-600">
                   {stageLeads.length}
@@ -1032,8 +1244,8 @@ const [dragging,  setDragging]  = useState(null);
               {/* Cards */}
               <div className="flex-1 px-2 pb-2 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                 {stageLeads.slice(0, colCount(stage.id)).map(lead => {
-                  const over = isOverdue(lead.followUpDate) && !['converted','lost'].includes(lead.stage);
-                  const tod  = isToday(lead.followUpDate)   && !['converted','lost'].includes(lead.stage);
+                  const over = isOverdue(lead.followUpDate) && !isClosed(lead.stage);
+                  const tod  = isToday(lead.followUpDate)   && !isClosed(lead.stage);
                   const showPicker = movingId === lead.id;
                   return (
                     <div key={lead.id}
@@ -1085,7 +1297,7 @@ const [dragging,  setDragging]  = useState(null);
                         <div className="text-xs text-slate-500 truncate mb-1.5">📣 {lead.campaign}</div>
                       )}
 
-                      {lead.followUpDate && !['converted','lost'].includes(lead.stage) && (
+                      {lead.followUpDate && !isClosed(lead.stage) && (
                         <div className={`text-xs mb-1.5 font-medium ${over ? 'text-red-600' : tod ? 'text-amber-600' : 'text-slate-400'}`}>
                           {over ? `⚠ Vencido ${fmtDate(lead.followUpDate)}` : tod ? '📅 Contactar hoy' : `🗓 ${fmtDate(lead.followUpDate)}`}
                         </div>
@@ -1107,9 +1319,9 @@ const [dragging,  setDragging]  = useState(null);
                             className="text-sm text-indigo-500 hover:bg-indigo-50 h-9 min-w-9 px-2 flex items-center justify-center rounded-lg transition-colors border border-indigo-200 font-bold">
                             ⇄
                           </button>
-                          {stage.id !== 'converted' && stage.id !== 'lost' && (
+                          {!isClosed(stage.id) && wonIds[0] && (
                             <button
-                              onClick={e => { e.stopPropagation(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
+                              onClick={e => { e.stopPropagation(); onStageChange(lead.id, wonIds[0]); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
                               title="Marcar convertido"
                               className="text-sm text-emerald-600 hover:bg-emerald-50 h-9 min-w-9 px-2 flex items-center justify-center rounded-lg transition-colors font-semibold border border-emerald-200">
                               ✓
@@ -1135,11 +1347,13 @@ const [dragging,  setDragging]  = useState(null);
                       {showPicker && (
                         <div className="mt-2 pt-2 border-t border-slate-100">
                           <p className="text-xs text-slate-400 mb-1.5 font-medium">Mover a:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {STAGES.filter(s => s.id !== lead.stage).map(s => (
+                          {/* max-h + scroll: con muchas columnas la lista no puede crecer sin fin */}
+                          <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto">
+                            {stages.filter(s => s.id !== lead.stage).map(s => (
                               <button key={s.id}
                                 onClick={e => { e.stopPropagation(); onStageChange(lead.id, s.id); showToast(`${lead.name} → ${s.label}`, 'success'); setMovingId(null); }}
-                                className={`text-xs px-2.5 py-1.5 rounded-lg border font-semibold transition-colors ${s.pill}`}>
+                                style={pillStyle(s.color)}
+                                className="text-xs px-2.5 py-1.5 rounded-lg border font-semibold transition-colors">
                                 {s.label}
                               </button>
                             ))}
@@ -1183,32 +1397,10 @@ const [dragging,  setDragging]  = useState(null);
         </div>
       )}
     </div>
-                {/* ── Edit Stage Labels Modal ── */}
-                            {showEditStages && (
-                                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                                                                <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-xl">
-                                                                                        <h3 className="text-white font-bold text-lg mb-4">Personalizar etapas del pipeline</h3>
-                                                                                                                <div className="space-y-2">
-                                                                                                                                            {editLabels.map((s, i) => (
-                                                                                                                                                                            <div key={s.id} className="flex items-center gap-2">
-                                                                                                                                                                                                                <span className="text-slate-400 text-xs w-20 truncate">{STAGE[s.id] ? STAGE[s.id].label : s.id}</span>
-                                                                                                                                                                                                                                                    <input
-                                                                                                                                                                                                                                                                                            value={s.label}
-                                                                                                                                                                                                                                                                                                                                    onChange={e => { const nl = [...editLabels]; nl[i] = {...nl[i], label: e.target.value}; setEditLabels(nl); }}
-                                                                                                                                                                                                                                                                                                                                                                            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                                                                                                                                                                                                                                                                                                                                                                                                />
-                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ))}
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    </div>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            <div className="flex gap-2 mt-5">
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <button onClick={() => setShowEditStages(false)}
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        className="flex-1 border border-slate-600 text-slate-300 py-2 rounded-xl text-sm">Cancelar</button>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <button onClick={() => { onSaveStageLabels && onSaveStageLabels(editLabels); setShowEditStages(false); }}
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-xl text-sm font-semibold">Guardar</button>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            </div>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                </div>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            )}
+      {/* ── Gestor de columnas del pipeline ── */}
+      {showEditStages && (
+        <StagesManagerModal leads={leads} showToast={showToast} onClose={() => setShowEditStages(false)} />
+      )}
   </>
   );
 }
@@ -1216,14 +1408,15 @@ const [dragging,  setDragging]  = useState(null);
 /* ═══════════════════════════ REMINDERS ══════════════════════════ */
 
 function RemindersView({ leads, onEdit, waTemplate, waApp }) {
-  const overdue  = leads.filter(l => isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage))
+  const { isClosed } = useStages();
+  const overdue  = leads.filter(l => isOverdue(l.followUpDate) && !isClosed(l.stage))
                         .sort((a, b) => a.followUpDate.localeCompare(b.followUpDate));
-  const todayArr = leads.filter(l => isToday(l.followUpDate)   && !['converted','lost'].includes(l.stage));
-  const upcoming = leads.filter(l => { const d = daysUntil(l.followUpDate); return d !== null && d > 0 && d <= 7 && !['converted','lost'].includes(l.stage); })
+  const todayArr = leads.filter(l => isToday(l.followUpDate)   && !isClosed(l.stage));
+  const upcoming = leads.filter(l => { const d = daysUntil(l.followUpDate); return d !== null && d > 0 && d <= 7 && !isClosed(l.stage); })
                         .sort((a, b) => a.followUpDate.localeCompare(b.followUpDate));
-  const later    = leads.filter(l => { const d = daysUntil(l.followUpDate); return d !== null && d > 7 && !['converted','lost'].includes(l.stage); })
+  const later    = leads.filter(l => { const d = daysUntil(l.followUpDate); return d !== null && d > 7 && !isClosed(l.stage); })
                         .sort((a, b) => a.followUpDate.localeCompare(b.followUpDate));
-  const noDate   = leads.filter(l => !l.followUpDate && !['converted','lost'].includes(l.stage));
+  const noDate   = leads.filter(l => !l.followUpDate && !isClosed(l.stage));
 
   const Card = ({ lead, urgency }) => {
     const d = daysUntil(lead.followUpDate);
@@ -1303,39 +1496,104 @@ function RemindersView({ leads, onEdit, waTemplate, waApp }) {
 
 /* ═══════════════════════════ REPORTS ═══════════════════════════ */
 
-function buildReport(leads, days) {
-  const since = new Date(); since.setDate(since.getDate() - days);
-  const sinceISO = since.toISOString().split('T')[0];
-  const prev = new Date(); prev.setDate(prev.getDate() - days * 2);
-  const prevISO = prev.toISOString().split('T')[0];
+/* ── Rangos de fecha (estilo Meta Ads) ─────────────────────────────
+   Convención de Meta: "últimos N días" NO incluye hoy. Todo se calcula en
+   hora LOCAL y se compara como texto YYYY-MM-DD, así no hay desfases. */
+const DATE_PRESETS = [
+  { id: 'today',           label: 'Hoy' },
+  { id: 'yesterday',       label: 'Ayer' },
+  { id: 'today_yesterday', label: 'Hoy y ayer' },
+  { id: 'last_7d',         label: 'Últimos 7 días' },
+  { id: 'last_14d',        label: 'Últimos 14 días' },
+  { id: 'last_28d',        label: 'Últimos 28 días' },
+  { id: 'last_30d',        label: 'Últimos 30 días' },
+  { id: 'this_week',       label: 'Esta semana' },
+  { id: 'last_week',       label: 'Última semana' },
+  { id: 'this_month',      label: 'Este mes' },
+  { id: 'last_month',      label: 'El mes pasado' },
+  { id: 'maximum',         label: 'Máximo' },
+];
 
-  const period = leads.filter(l => (l.createdAt || '') >= sinceISO);
-  const prevPeriod = leads.filter(l => (l.createdAt || '') >= prevISO && (l.createdAt || '') < sinceISO);
+function presetRange(preset, leads) {
+  const T = todayISO();
+  const lastN = n => ({ from: addDays(T, -n), to: addDays(T, -1) });
+  switch (preset) {
+    case 'today':           return { preset, from: T, to: T };
+    case 'yesterday':       return { preset, from: addDays(T, -1), to: addDays(T, -1) };
+    case 'today_yesterday': return { preset, from: addDays(T, -1), to: T };
+    case 'last_7d':         return { preset, ...lastN(7) };
+    case 'last_14d':        return { preset, ...lastN(14) };
+    case 'last_28d':        return { preset, ...lastN(28) };
+    case 'last_30d':        return { preset, ...lastN(30) };
+    case 'this_week':       return { preset, from: mondayOf(T), to: T };
+    case 'last_week':       return { preset, from: addDays(mondayOf(T), -7), to: addDays(mondayOf(T), -1) };
+    case 'this_month':      return { preset, from: startOfMonth(T), to: T };
+    case 'last_month': {
+      const prevMonthDay = addDays(startOfMonth(T), -1);
+      return { preset, from: startOfMonth(prevMonthDay), to: prevMonthDay };
+    }
+    case 'maximum': {
+      const dates = (leads || []).map(l => String(l.createdAt || '').slice(0, 10)).filter(Boolean).sort();
+      return { preset, from: dates[0] || T, to: T };
+    }
+    default:                return { preset: 'last_30d', ...lastN(30) };
+  }
+}
+
+// Periodo anterior de la MISMA longitud (mes natural en los presets de mes).
+function withComparison(range) {
+  const { from, to, preset } = range;
+  const label = preset === 'custom'
+    ? `${fmtDate(from)} – ${fmtDate(to)}`
+    : ((DATE_PRESETS.find(p => p.id === preset) || {}).label || `${fmtDate(from)} – ${fmtDate(to)}`);
+  if (preset === 'maximum') return { ...range, label, comparable: false, prevFrom: null, prevTo: null };
+  let prevTo   = addDays(from, -1);
+  let prevFrom = addDays(prevTo, -(dayCount(from, to) - 1));
+  if (preset === 'this_month' || preset === 'last_month') {
+    prevFrom = startOfMonth(addDays(from, -1));
+    prevTo   = endOfMonth(prevFrom);
+  }
+  return { ...range, label, comparable: true, prevFrom, prevTo };
+}
+
+function buildReport(leads, range, ctx) {
+  const { from, to, prevFrom, prevTo, comparable, label } = range;
+  const day = l => String(l.createdAt || '').slice(0, 10);
+  const inR = (l, a, b) => { const d = day(l); return !!d && d >= a && d <= b; };
+
+  const period     = leads.filter(l => inR(l, from, to));
+  const prevPeriod = comparable ? leads.filter(l => inR(l, prevFrom, prevTo)) : [];
+  const noDate     = leads.filter(l => !day(l)).length;
+
+  const isWon = id => ctx.isWon(id), isLost = id => ctx.isLost(id), isClosed = id => ctx.isClosed(id);
 
   const total     = period.length;
   const prevTotal = prevPeriod.length;
-  const converted = period.filter(l => l.stage === 'converted').length;
-  const lost      = period.filter(l => l.stage === 'lost').length;
-  const active    = period.filter(l => !['converted','lost'].includes(l.stage)).length;
+  const converted = period.filter(l => isWon(l.stage)).length;
+  const lost      = period.filter(l => isLost(l.stage)).length;
+  const active    = period.filter(l => !isClosed(l.stage)).length;
   const convRate  = total ? Math.round(converted / total * 100) : 0;
   const lostRate  = total ? Math.round(lost / total * 100) : 0;
-  const potValue  = period.filter(l => l.stage !== 'lost').reduce((s,l) => s+(+l.value||0), 0);
-  const wonValue  = period.filter(l => l.stage === 'converted').reduce((s,l) => s+(+l.value||0), 0);
-  const trend     = prevTotal > 0 ? Math.round((total - prevTotal) / prevTotal * 100) : null;
-  const overdue   = period.filter(l => isOverdue(l.followUpDate) && !['converted','lost'].includes(l.stage)).length;
+  const potValue  = period.filter(l => !isLost(l.stage)).reduce((s,l) => s+(+l.value||0), 0);
+  const wonValue  = period.filter(l => isWon(l.stage)).reduce((s,l) => s+(+l.value||0), 0);
+  const trend     = (comparable && prevTotal > 0) ? Math.round((total - prevTotal) / prevTotal * 100) : null;
+  const overdue   = period.filter(l => isOverdue(l.followUpDate) && !isClosed(l.stage)).length;
   const avgValue  = converted > 0 ? Math.round(wonValue / converted) : 0;
 
-  const byStage = STAGES.map(s => ({
+  const byStage = ctx.stages.map(s => ({
     ...s, count: period.filter(l => l.stage === s.id).length,
     pct: total ? Math.round(period.filter(l => l.stage === s.id).length / total * 100) : 0,
   }));
+  const orphanCount = period.filter(l => !ctx.byId[l.stage]).length;
+  if (orphanCount > 0) byStage.push({
+    id: '__orphan__', label: '⚠ Sin etapa', color: '#94a3b8',
+    count: orphanCount, pct: total ? Math.round(orphanCount / total * 100) : 0,
+  });
 
   const srcMap = {};
   period.forEach(l => { if (l.source) srcMap[l.source] = (srcMap[l.source]||0)+1; });
   const bySrc = Object.entries(srcMap).sort((a,b) => b[1]-a[1]);
 
-  // ── AI-style analysis ──────────────────────────────────────────
-  const periodLabel = days === 7 ? 'semana' : days === 15 ? 'quincena' : 'mes';
   let rating, ratingEmoji, ratingBg;
   if      (convRate >= 20) { rating = 'Excelente';          ratingEmoji = '🏆'; ratingBg = 'bg-emerald-50 border-emerald-200 text-emerald-800'; }
   else if (convRate >= 12) { rating = 'Muy bueno';           ratingEmoji = '✅'; ratingBg = 'bg-blue-50 border-blue-200 text-blue-800'; }
@@ -1343,15 +1601,16 @@ function buildReport(leads, days) {
   else if (total === 0)    { rating = 'Sin actividad';        ratingEmoji = '😴'; ratingBg = 'bg-slate-50 border-slate-200 text-slate-600'; }
   else                     { rating = 'Necesita atención';   ratingEmoji = '⚠️'; ratingBg = 'bg-red-50 border-red-200 text-red-800'; }
 
-  const bottleneck = byStage.filter(s => !['converted','lost'].includes(s.id)).reduce((m,s) => s.count > m.count ? s : m, { count:0, label:'—' });
+  const bottleneck = byStage.filter(s => !isClosed(s.id)).reduce((m,s) => s.count > m.count ? s : m, { count:0, label:'—' });
   const bestSrc    = bySrc[0];
+  const periodTxt  = `${String(label).toLowerCase()} (${fmtDate(from)} – ${fmtDate(to)})`;
 
   let summary;
   if (total === 0) {
-    summary = `No se registraron leads en los últimos ${days} días. Revisá las campañas de captación activas y asegurate de que el webhook de Make está funcionando correctamente.`;
+    summary = `No se registraron leads en ${periodTxt}. Revisá las campañas de captación activas y asegurate de que el webhook de Make está funcionando correctamente.`;
   } else {
-    const trendTxt = trend === null ? '' : trend > 0 ? `, un ${trend}% más que el período anterior 📈` : trend < 0 ? `, un ${Math.abs(trend)}% menos que el período anterior 📉` : ', igual que el período anterior';
-    summary = `En los últimos ${days} días captaste ${total} lead${total!==1?'s':''}${trendTxt}. De ellos, ${converted} se convirtier${converted!==1?'on':'ó'} en clientes (${convRate}%)${wonValue > 0 ? ` generando ${wonValue.toLocaleString('es-ES')} € en ventas cerradas` : ''}. Hay ${active} lead${active!==1?'s':''} activos con un valor potencial de ${potValue.toLocaleString('es-ES')} €.`;
+    const trendTxt = (!comparable || trend === null) ? '' : trend > 0 ? `, un ${trend}% más que el período anterior 📈` : trend < 0 ? `, un ${Math.abs(trend)}% menos que el período anterior 📉` : ', igual que el período anterior';
+    summary = `En ${periodTxt} captaste ${total} lead${total!==1?'s':''}${trendTxt}. De ellos, ${converted} se convirtier${converted!==1?'on':'ó'} en clientes (${convRate}%)${wonValue > 0 ? ` generando ${wonValue.toLocaleString('es-ES')} € en ventas cerradas` : ''}. Hay ${active} lead${active!==1?'s':''} activos con un valor potencial de ${potValue.toLocaleString('es-ES')} €.`;
   }
 
   const positives = [];
@@ -1379,12 +1638,144 @@ function buildReport(leads, days) {
   if (convRate < 10 && total > 0) recs.push('Revisá el script de ventas y el tiempo de respuesta al primer contacto.');
   if (recs.length === 0) recs.push('Mantené el ritmo actual y registrá cada interacción en el CRM.');
 
-  return { total, prevTotal, trend, converted, lost, active, convRate, lostRate, potValue, wonValue, avgValue, overdue, byStage, bySrc, rating, ratingEmoji, ratingBg, summary, positives: positives.slice(0,3), issues: issues.slice(0,3), recs: recs.slice(0,3) };
+  return { total, prevTotal, trend, comparable, noDate, rangeLabel: label, from, to,
+           converted, lost, active, convRate, lostRate, potValue, wonValue, avgValue, overdue,
+           byStage, bySrc, rating, ratingEmoji, ratingBg, summary,
+           positives: positives.slice(0,3), issues: issues.slice(0,3), recs: recs.slice(0,3) };
 }
 
+/* ── Calendario de dos meses + presets ───────────────────────────── */
+function MonthGrid({ monthISO, from, to, hover, onPick, onHover }) {
+  const [y, m] = monthISO.split('-').map(Number);
+  const first  = new Date(y, m - 1, 1);
+  const days   = new Date(y, m, 0).getDate();
+  const lead   = (first.getDay() + 6) % 7;   // semana empezando en lunes
+  const T      = todayISO();
+  const end    = to || hover;
+  const cells  = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(isoLocal(new Date(y, m - 1, d)));
+  const title = first.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="text-center text-sm font-semibold text-slate-700 mb-2 capitalize">{title}</div>
+      <div className="grid grid-cols-7 gap-0.5 text-center">
+        {['lun','mar','mié','jue','vie','sáb','dom'].map(d => (
+          <div key={d} className="text-[10px] text-slate-400 font-medium py-1">{d}</div>
+        ))}
+        {cells.map((iso, i) => {
+          if (!iso) return <div key={'e' + i} />;
+          const future  = iso > T;
+          const lo      = from && end ? (from < end ? from : end) : null;
+          const hi      = from && end ? (from < end ? end : from) : null;
+          const isEdge  = iso === from || (to && iso === to);
+          const inRange = lo && hi && iso >= lo && iso <= hi;
+          return (
+            <button key={iso} disabled={future}
+              onClick={() => onPick(iso)} onMouseEnter={() => onHover(iso)}
+              className={`text-xs py-1.5 rounded transition-colors disabled:opacity-25 disabled:cursor-not-allowed
+                ${isEdge ? 'bg-indigo-600 text-white font-bold'
+                  : inRange ? 'bg-indigo-100 text-indigo-800'
+                  : 'hover:bg-slate-100 text-slate-700'}`}>
+              {Number(iso.slice(8))}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DateRangePicker({ range, leads, onApply }) {
+  const [open,  setOpen]  = useState(false);
+  const [draft, setDraft] = useState(range);
+  const [hover, setHover] = useState(null);
+  const [pick,  setPick]  = useState(null);   // primer clic de un rango personalizado
+  // Se abre en el mes de INICIO del rango: así se ven los dos extremos a la vez.
+  const [month, setMonth] = useState(() => startOfMonth(range.from || todayISO()));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (open) { setDraft(range); setPick(null); setHover(null); setMonth(startOfMonth(range.from || todayISO())); }
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onEsc = e => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [open]);
+
+  const prevMonth = m => { const [y, mm] = m.split('-').map(Number); return isoLocal(new Date(y, mm - 2, 1)); };
+  const nextMonth = m => { const [y, mm] = m.split('-').map(Number); return isoLocal(new Date(y, mm, 1)); };
+
+  const pickDay = iso => {
+    if (!pick) { setPick(iso); setDraft({ preset: 'custom', from: iso, to: '' }); }
+    else {
+      const a = pick <= iso ? pick : iso, b = pick <= iso ? iso : pick;
+      setDraft({ preset: 'custom', from: a, to: b });
+      setPick(null);
+    }
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition-all">
+        📅 {range.label}
+        <span className="text-slate-400 text-xs">▾</span>
+      </button>
+
+      {open && (
+        <div className="no-print absolute right-0 top-full mt-2 z-30 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col sm:flex-row overflow-hidden"
+             style={{ width: 'min(680px, calc(100vw - 32px))' }}>
+          <div className="sm:w-44 border-b sm:border-b-0 sm:border-r border-slate-100 p-2 max-h-44 sm:max-h-none overflow-y-auto flex-shrink-0">
+            {DATE_PRESETS.map(p => (
+              <button key={p.id} onClick={() => setDraft(presetRange(p.id, leads))}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors
+                  ${draft.preset === p.id ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 min-w-0 p-3">
+            <div className="flex items-center justify-between mb-1">
+              <button onClick={() => setMonth(prevMonth(month))} className="text-slate-400 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100">‹</button>
+              <button onClick={() => setMonth(nextMonth(month))} className="text-slate-400 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100">›</button>
+            </div>
+            <div className="flex gap-4" onMouseLeave={() => setHover(null)}>
+              <MonthGrid monthISO={month} from={draft.from} to={draft.to} hover={hover} onPick={pickDay} onHover={setHover} />
+              <div className="hidden sm:flex flex-1 min-w-0">
+                <MonthGrid monthISO={nextMonth(month)} from={draft.from} to={draft.to} hover={hover} onPick={pickDay} onHover={setHover} />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-slate-100">
+              <span className="text-xs text-slate-500 truncate">
+                {draft.from ? `${fmtDate(draft.from)} – ${draft.to ? fmtDate(draft.to) : '…'}` : 'Elige un rango'}
+              </span>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => setOpen(false)}
+                  className="px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button disabled={!draft.from || !draft.to}
+                  onClick={() => { onApply(withComparison(draft)); setOpen(false); }}
+                  className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40">Actualizar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function ReportsView({ leads }) {
-  const [days, setDays] = useState(30);
-  const report = buildReport(leads, days);
+  const ctx = useStages();
+  const [range, setRange] = useState(() => withComparison(presetRange('last_30d')));
+  // Memoizado: mover el ratón por el calendario no debe recalcular el informe
+  const report = useMemo(() => buildReport(leads, range, ctx), [leads, range, ctx]);
 
   const fmtVal = v => v >= 1000 ? `${(v/1000).toFixed(v%1000===0?0:1).replace('.', ',')}k €` : `${v} €`;
 
@@ -1399,7 +1790,7 @@ function ReportsView({ leads }) {
     </div>
   );
 
-  const trendBadge = report.trend !== null ? (
+  const trendBadge = (report.comparable && report.trend !== null) ? (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${report.trend >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
       {report.trend >= 0 ? '▲' : '▼'} {Math.abs(report.trend)}% vs período anterior
     </span>
@@ -1419,7 +1810,7 @@ function ReportsView({ leads }) {
         <div className="flex items-center justify-between">
           <div>
             <h1 style={{fontSize:'22px',fontWeight:'bold',color:'#1e293b'}}>LAX Group CRM — Informe de Rendimiento</h1>
-            <p style={{fontSize:'12px',color:'#64748b',marginTop:'4px'}}>Período: últimos {days} días · Generado el {today}</p>
+            <p style={{fontSize:'12px',color:'#64748b',marginTop:'4px'}}>Período: {report.rangeLabel} ({fmtDate(report.from)} – {fmtDate(report.to)}) · Generado el {today}</p>
           </div>
           <div style={{fontSize:'32px'}}>📊</div>
         </div>
@@ -1432,19 +1823,20 @@ function ReportsView({ leads }) {
           <p className="text-sm text-slate-500 mt-0.5">Análisis automático de tu pipeline de ventas</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          {[7,15,30].map(d => (
-            <button key={d} onClick={() => setDays(d)}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all border
-                ${days === d ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
-              {d} días
-            </button>
-          ))}
+          <DateRangePicker range={range} leads={leads} onApply={setRange} />
           <button onClick={handlePrint}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-600 shadow-md transition-all">
             📄 Descargar PDF
           </button>
         </div>
       </div>
+
+      {/* Leads sin fecha de alta: si no se avisara, faltarían del informe sin explicación */}
+      {report.noDate > 0 && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+          {report.noDate} lead{report.noDate === 1 ? '' : 's'} sin fecha de alta — no entran en ningún período.
+        </div>
+      )}
 
       {/* Rating banner */}
       <div className={`flex items-center gap-4 p-4 rounded-2xl border-2 ${report.ratingBg}`}>
@@ -1460,7 +1852,7 @@ function ReportsView({ leads }) {
         <KPI label="Leads captados"   value={report.total}                         icon="👥" color="bg-indigo-50 border-indigo-100 text-indigo-800"  sub={`${report.active} activos`} />
         <KPI label="Convertidos"      value={`${report.converted} (${report.convRate}%)`} icon="✅" color="bg-emerald-50 border-emerald-100 text-emerald-800" sub="tasa de cierre" />
         <KPI label="Valor cerrado"    value={fmtVal(report.wonValue)}              icon="💰" color="bg-amber-50 border-amber-100 text-amber-800"     sub={report.avgValue > 0 ? `Promedio ${fmtVal(report.avgValue)}` : 'Sin cierres aún'} />
-        <KPI label="Pipeline activo"  value={fmtVal(report.potValue)}              icon="🔄" color="bg-blue-50 border-blue-100 text-blue-800"       sub={`${report.overdue} vencidos`} />
+        <KPI label="Pipeline activo"  value={fmtVal(report.potValue)}              icon="🔄" color="bg-blue-50 border-blue-100 text-blue-800"       sub={`${report.overdue} vencidos a día de hoy`} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -1476,8 +1868,8 @@ function ReportsView({ leads }) {
                   <span className="text-xs font-bold text-slate-700">{s.count} leads · {s.pct}%</span>
                 </div>
                 <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-700 ${s.bar}`}
-                    style={{ width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} />
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ ...barStyle(s.color), width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} />
                 </div>
               </div>
             ))}
@@ -1576,6 +1968,7 @@ function ReportsView({ leads }) {
 /* ═══════════════════════════ SIDEBAR ════════════════════════════ */
 
 function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) {
+  const { stages, isClosed } = useStages();
   const isAdmin    = me?.role === 'admin';
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
 
@@ -1594,7 +1987,7 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
   };
 
   const alertCount = leads.filter(l =>
-    (isOverdue(l.followUpDate) || isToday(l.followUpDate)) && !['converted','lost'].includes(l.stage)
+    (isOverdue(l.followUpDate) || isToday(l.followUpDate)) && !isClosed(l.stage)
   ).length;
 
   const nav = isAdmin
@@ -1609,7 +2002,11 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
         { id: 'reminders',  label: 'Recordatorios',  icon: 'bell', badge: alertCount },
       ];
 
-  const stageCounts = Object.fromEntries(STAGES.slice(0, 5).map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
+  // Pipeline rápido: columnas abiertas (sin las de "perdido"), tope 6 para no
+  // desbordar la barra lateral cuando el cliente tiene muchas columnas.
+  const quickStages = stages.filter(s => !s.isLost).slice(0, 6);
+  const stageCounts = Object.fromEntries(quickStages.map(s => [s.id, leads.filter(l => l.stage === s.id).length]));
+  const hiddenStages = stages.filter(s => !s.isLost).length - quickStages.length;
 
   const handleNav = id => { goTo(id); onClose && onClose(); };
 
@@ -1669,18 +2066,21 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
           <div className="p-4 border-t border-slate-700/50">
             <div className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-3">Pipeline rápido</div>
             <div className="space-y-2">
-              {STAGES.slice(0, 5).map(s => {
+              {quickStages.map(s => {
                 const count = stageCounts[s.id] || 0;
                 return (
                   <div key={s.id} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${s.bar}`} />
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={barStyle(s.color)} />
                       <span className="text-xs text-slate-400 truncate">{s.label}</span>
                     </div>
                     <span className="text-xs font-bold text-slate-300">{count}</span>
                   </div>
                 );
               })}
+              {hiddenStages > 0 && (
+                <div className="text-xs text-slate-500 pt-1">+{hiddenStages} columna{hiddenStages === 1 ? '' : 's'} más</div>
+              )}
             </div>
           </div>
         )}
@@ -2195,7 +2595,15 @@ function MetaCapiView({ toast }) {
             E('div',null,
               E('h3',{className:'text-xs font-bold text-gray-400 uppercase tracking-wide mb-2'},'🔀 Etapa → Evento Meta'),
               E('div',{className:'space-y-1.5'},
-                                            (c.stageLabels && c.stageLabels.length ? c.stageLabels : PIPELINE_STAGES_CAPI).map(st=>{
+                                            (function(){
+                                              // Columnas reales del cliente (incluidas las que ha creado él)
+                                              const known = (c.stageLabels && c.stageLabels.length) ? c.stageLabels : PIPELINE_STAGES_CAPI;
+                                              // Reglas cuya columna ya no existe: se listan para poder borrarlas
+                                              const orphan = (c.stageRules||[])
+                                                .filter(r => !known.some(s => s.id === r.stageId))
+                                                .map(r => ({ id: r.stageId, label: '⚠ Columna borrada: ' + r.stageId, orphan: true }));
+                                              return [...known, ...orphan];
+                                            })().map(st=>{
                   const rule=getRule(c.stageRules,st.id);
                   return E('div',{key:st.id,className:'bg-gray-700 rounded p-2'},
                     E('div',{className:'flex items-center gap-1 mb-1'},
@@ -2230,7 +2638,8 @@ function App() {
   const [me,         setMe]         = useState(null);
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [appReady,   setAppReady]   = useState(false);
-          const [stageLabels,   setStageLabels]  = useState(STAGES.map(s => ({ id: s.id, label: s.label })));
+  const [stages,       setStages]       = useState(DEFAULT_STAGES);
+  const [stagesLoaded, setStagesLoaded] = useState(false);
   const [waTemplate, setWaTemplate] = useState(DEFAULT_WA_TEMPLATE);
   const [waApp,      setWaApp]      = useState('normal'); // 'normal' | 'business'
 
@@ -2246,14 +2655,18 @@ function App() {
     }).catch(() => {}).finally(() => setAppReady(true));
   }, []);
 
-          // Load custom pipeline stage labels for client
-                  useEffect(() => {
-                              if (me && me.role === 'client') {
-                                              fetch('/api/pipeline-stages').then(r => r.json()).then(data => {
-                                                                  if (Array.isArray(data)) setStageLabels(data);
-                                                                                  }).catch(() => {});
-                                                                                              }
-                                                                                                      }, [me]);
+  // Etapas del pipeline del cliente (columnas ilimitadas, vienen del servidor)
+  useEffect(() => {
+    if (me && me.role === 'client') {
+      fetch('/api/pipeline-stages')
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data) && data.length) setStages(data); })
+        .catch(() => {})
+        .finally(() => setStagesLoaded(true));
+    } else if (me) {
+      setStagesLoaded(true);
+    }
+  }, [me]);
 
   // Load this client's WhatsApp message template (used by the contact buttons)
   useEffect(() => {
@@ -2265,26 +2678,29 @@ function App() {
     }
   }, [me]);
 
-                                                                                                              // Helper: get label for a stage id
-                                                                                                                      const getStageLabel = (id) => {
-                                                                                                                                  const found = stageLabels.find(s => s.id === id);
-                                                                                                                                              return found ? found.label : (STAGE[id] ? STAGE[id].label : id);
-                                                                                                                                                      };
+  // Guarda la lista completa de columnas. Devuelve el resultado para que el
+  // modal pueda mostrar el error y NO cerrarse si el servidor lo rechaza.
+  const saveStages = async (next) => {
+    try {
+      const r = await fetch('/api/pipeline-stages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, error: d.error || 'No se pudo guardar', blocked: d.blocked || [] };
+      if (Array.isArray(d.stages)) setStages(d.stages);
+      return { ok: true, msg: d.deletedRules
+        ? `Columnas actualizadas · ${d.deletedRules} regla(s) de Meta eliminada(s)`
+        : 'Columnas actualizadas' };
+    } catch (e) {
+      return { ok: false, error: 'Error de conexión' };
+    }
+  };
 
-                                                                                                                                                              // Save custom stage labels (client)
-                                                                                                                                                                      const saveStageLabels = async (newLabels) => {
-                                                                                                                                                                                  try {
-                                                                                                                                                                                                  const r = await fetch('/api/pipeline-stages', {
-                                                                                                                                                                                                                      method: 'PUT',
-                                                                                                                                                                                                                                          headers: { 'Content-Type': 'application/json' },
-                                                                                                                                                                                                                                                              body: JSON.stringify(newLabels)
-                                                                                                                                                                                                                                                                              });
-                                                                                                                                                                                                                                                                                              if (r.ok) {
-                                                                                                                                                                                                                                                                                                                  setStageLabels(newLabels);
-                                                                                                                                                                                                                                                                                                                                      showToast('Etapas actualizadas', 'success');
-                                                                                                                                                                                                                                                                                                                                                      }
-                                                                                                                                                                                                                                                                                                                                                                  } catch(e) { showToast('Error al guardar', 'error'); }
-                                                                                                                                                                                                                                                                                                                                                                          };
+  const stagesCtx = useMemo(() => buildStagesCtx(stages, saveStages), [stages]);
+
+
   // Firma ligera de los leads: si no cambia entre syncs, NO tocamos el estado
   // (así el sync de cada 30s no repinta 4.500 filas para nada).
   const lastSigRef = useRef('');
@@ -2372,7 +2788,8 @@ function App() {
   };
 
   const handleImport = async rows => {
-    const stageIds = STAGES.map(s => s.id);
+    const stageIds = stages.map(s => s.id);
+    const entryId  = stagesCtx.entryId;
     const newLeads = rows.map(r => ({
       name: r.name || '',
       phone: r.phone || '',
@@ -2383,7 +2800,7 @@ function App() {
       adName: r.adName || '',
       stage: stageIds.includes(r.stage)
         ? r.stage
-        : (STAGES.find(s => s.label.toLowerCase() === (r.stage||'').toLowerCase())?.id || 'new'),
+        : (stages.find(s => s.label.toLowerCase() === String(r.stage || '').toLowerCase())?.id || entryId),
       value: r.value ? Number(r.value) || 0 : 0,
       followUpDate: r.followUpDate || '',
       notes: r.notes || '',
@@ -2403,8 +2820,9 @@ function App() {
 
   const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
 
-  // Loading screen while we check the session
-  if (!appReady) return (
+  // Pantalla de carga mientras se comprueba la sesión Y llegan las columnas del
+  // cliente: si no se espera, el tablero pinta las 6 por defecto y da un salto.
+  if (!appReady || (me && me.role === 'client' && !stagesLoaded)) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
       <div className="text-center">
         <img src="/logo.png" alt="LAX Group" style={{height:'80px',width:'auto',display:'block',margin:'0 auto 16px'}} />
@@ -2415,6 +2833,7 @@ function App() {
   );
 
   return (
+    <StagesCtx.Provider value={stagesCtx}>
     <div className="flex flex-col h-screen overflow-hidden">
       {me?.impersonatedBy && (
         <div className="no-print bg-amber-500 text-white px-4 py-2 flex items-center justify-between gap-3 flex-shrink-0 shadow-md z-50">
@@ -2470,7 +2889,7 @@ function App() {
             goTo={setView} />
         )}
         {view === 'leads'     && !isAdmin && <LeadsView     {...commonProps} />}
-                    {view === 'pipeline'  && !isAdmin && <PipelineView    {...commonProps} stageLabels={stageLabels} onSaveStageLabels={saveStageLabels} />}
+                    {view === 'pipeline'  && !isAdmin && <PipelineView    {...commonProps} />}
         {view === 'reports'   && !isAdmin && <ReportsView   leads={leads} />}
         {view === 'reminders' && !isAdmin && <RemindersView {...commonProps} />}
       </main>
@@ -2514,6 +2933,7 @@ function App() {
       </div>{/* end flex-1 column */}
       </div>{/* end sidebar+content row */}
     </div>
+    </StagesCtx.Provider>
   );
 }
 

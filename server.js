@@ -110,6 +110,35 @@ async function initDB() {
                                                                                                                 PRIMARY KEY (username, stage_id)
                                                                                                                         )
                                                                                                                             `);
+
+      // La migración va protegida: si algo fallara NO puede tumbar el arranque
+      // (bootstrap hace process.exit(1) ante cualquier error). En el peor caso
+      // el CRM sigue funcionando con las columnas por defecto.
+      try {
+        // ── Migración: columnas de pipeline ilimitadas ───────────────────────
+        // Aditiva e idempotente. No borra ni una fila; solo añade campos y
+        // rellena los que faltan preservando EXACTAMENTE el orden visual actual.
+        await pool.query('ALTER TABLE pipeline_stage_labels ADD COLUMN IF NOT EXISTS "position" INTEGER');
+        await pool.query('ALTER TABLE pipeline_stage_labels ADD COLUMN IF NOT EXISTS color TEXT');
+        await pool.query('ALTER TABLE pipeline_stage_labels ADD COLUMN IF NOT EXISTS is_won BOOLEAN NOT NULL DEFAULT false');
+        await pool.query('ALTER TABLE pipeline_stage_labels ADD COLUMN IF NOT EXISTS is_lost BOOLEAN NOT NULL DEFAULT false');
+        await pool.query('ALTER TABLE pipeline_stage_labels ADD COLUMN IF NOT EXISTS is_entry BOOLEAN NOT NULL DEFAULT false');
+        await pool.query(`UPDATE pipeline_stage_labels SET "position" = CASE stage_id
+                WHEN 'new' THEN 0 WHEN 'contacted' THEN 1 WHEN 'following' THEN 2
+                WHEN 'proposal' THEN 3 WHEN 'converted' THEN 4 WHEN 'lost' THEN 5
+                ELSE 99 END WHERE "position" IS NULL`);
+        await pool.query(`UPDATE pipeline_stage_labels SET color = CASE stage_id
+                WHEN 'new' THEN '#3b82f6' WHEN 'contacted' THEN '#eab308' WHEN 'following' THEN '#f97316'
+                WHEN 'proposal' THEN '#a855f7' WHEN 'converted' THEN '#22c55e' WHEN 'lost' THEN '#ef4444'
+                ELSE '#64748b' END WHERE color IS NULL`);
+        await pool.query("UPDATE pipeline_stage_labels SET is_won=true   WHERE stage_id='converted' AND is_won=false");
+        await pool.query("UPDATE pipeline_stage_labels SET is_lost=true  WHERE stage_id='lost'      AND is_lost=false");
+        await pool.query("UPDATE pipeline_stage_labels SET is_entry=true WHERE stage_id='new'       AND is_entry=false");
+        // Índice: con miles de leads por cliente, readLeads y el guard de borrado lo agradecen
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_leads_username ON leads(username)');
+      } catch (e) {
+        console.error("⚠️  Migración de columnas de pipeline NO aplicada:", e.message);
+      }
       // Plantilla de mensaje de WhatsApp por cliente (configurable por el admin)
       await pool.query(`CREATE TABLE IF NOT EXISTS whatsapp_templates (
               username TEXT PRIMARY KEY,
@@ -290,43 +319,141 @@ async function deleteMetaStageRule(username, stageId) {
       if (pool) { await pool.query('DELETE FROM meta_stage_rules WHERE username=$1 AND stage_id=$2', [username, stageId]); }
 }
 
-// -- Storage: Pipeline Stage Labels ─────────────────────────────────────────
-const DEFAULT_STAGE_LABELS = [
-    { id: 'new',       label: 'Nuevo Lead'       },
-        { id: 'contacted', label: 'Contactado'       },
-            { id: 'following', label: 'En Seguimiento'   },
-                { id: 'proposal',  label: 'Propuesta Enviada'},
-                    { id: 'converted', label: 'Convertido'       },
-                        { id: 'lost',      label: 'Perdido'          },
-                        ];
-                        async function getPipelineStageLabels(username) {
-                            if (pool) {
-                                    const { rows } = await pool.query(
-                                                'SELECT stage_id, label FROM pipeline_stage_labels WHERE username=$1',
-                                                            [username]
-                                                                    );
-                                                                            if (rows.length > 0) {
-                                                                                        // merge defaults with saved
-                                                                                                    return DEFAULT_STAGE_LABELS.map(d => {
-                                                                                                                    const saved = rows.find(r => r.stage_id === d.id);
-                                                                                                                                    return { id: d.id, label: saved ? saved.label : d.label };
-                                                                                                                                                });
-                                                                                                                                                        }
-                                                                                                                                                            }
-                                                                                                                                                                return DEFAULT_STAGE_LABELS.map(d => ({ ...d }));
-                                                                                                                                                                }
-                                                                                                                                                                async function savePipelineStageLabels(username, stages) {
-                                                                                                                                                                    // stages = [{id, label}, ...]
-                                                                                                                                                                        if (pool) {
-                                                                                                                                                                                for (const s of stages) {
-                                                                                                                                                                                            await pool.query(
-                                                                                                                                                                                                            `INSERT INTO pipeline_stage_labels (username, stage_id, label) VALUES ($1,$2,$3)
-                                                                                                                                                                                                                             ON CONFLICT (username, stage_id) DO UPDATE SET label=$3`,
-                                                                                                                                                                                                                                             [username, s.id, s.label]
-                                                                                                                                                                                                                                                         );
-                                                                                                                                                                                                                                                                 }
-                                                                                                                                                                                                                                                                     }
-                                                                                                                                                                                                                                                                     }
+// -- Storage: Pipeline Stages (columnas del pipeline, ilimitadas por cliente) ─
+// Los ids 'new', 'converted' y 'lost' son del sistema: se pueden renombrar,
+// recolorear y reordenar, pero NO borrar. Sostienen la etapa de entrada de los
+// leads (webhook de Make) y las métricas de conversión/pérdida de los informes.
+const STAGE_DEFAULTS = [
+      { id: 'new',       label: 'Nuevo Lead',        position: 0, color: '#3b82f6', isWon: false, isLost: false, isEntry: true  },
+      { id: 'contacted', label: 'Contactado',        position: 1, color: '#eab308', isWon: false, isLost: false, isEntry: false },
+      { id: 'following', label: 'En Seguimiento',    position: 2, color: '#f97316', isWon: false, isLost: false, isEntry: false },
+      { id: 'proposal',  label: 'Propuesta Enviada', position: 3, color: '#a855f7', isWon: false, isLost: false, isEntry: false },
+      { id: 'converted', label: 'Convertido',        position: 4, color: '#22c55e', isWon: true,  isLost: false, isEntry: false },
+      { id: 'lost',      label: 'Perdido',           position: 5, color: '#ef4444', isWon: false, isLost: true,  isEntry: false },
+];
+const PROTECTED_STAGE_IDS = ['new', 'converted', 'lost'];
+const MAX_STAGES  = 30;
+const STAGE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+const HEX_RE      = /^#[0-9a-fA-F]{6}$/;
+
+async function getPipelineStages(username) {
+      if (!pool) return STAGE_DEFAULTS.map(s => ({ ...s }));
+      const { rows } = await pool.query(
+              `SELECT stage_id, label, "position", color, is_won, is_lost, is_entry
+                 FROM pipeline_stage_labels WHERE username=$1
+                ORDER BY "position" NULLS LAST, stage_id`,
+              [username]
+      );
+      if (!rows.length) return STAGE_DEFAULTS.map(s => ({ ...s }));
+      return rows.map((r, i) => ({
+              id:       r.stage_id,
+              label:    r.label,
+              position: r.position == null ? i : r.position,
+              color:    HEX_RE.test(String(r.color || '')) ? r.color : '#64748b',
+              isWon:    r.is_won   === true,
+              isLost:   r.is_lost  === true,
+              isEntry:  r.is_entry === true,
+      }));
+}
+// Alias retrocompatible (lo usan /admin/meta-config y /admin/pipeline-stages).
+const getPipelineStageLabels = getPipelineStages;
+
+// La etapa de entrada de los leads nuevos (webhook, alta manual).
+async function getEntryStageId(username) {
+      try {
+              const stages = await getPipelineStages(username);
+              const entry = stages.find(s => s.isEntry) || stages[0];
+              return entry ? entry.id : 'new';
+      } catch { return 'new'; }
+}
+
+// Valida la lista entrante. Las banderas ganada/perdida/entrada las DERIVA el
+// servidor de los ids del sistema: nunca se aceptan desde el navegador, así
+// las métricas de conversión no se pueden romper desde el cliente.
+function validateStages(input) {
+      if (!Array.isArray(input) || input.length === 0) return { ok: false, error: 'Se requiere una lista de etapas' };
+      if (input.length > MAX_STAGES) return { ok: false, error: `Máximo ${MAX_STAGES} columnas` };
+      const seen = new Set();
+      const out  = [];
+      for (let i = 0; i < input.length; i++) {
+              const raw = input[i] || {};
+              const id  = String(raw.id || '').trim().toLowerCase();
+              if (!STAGE_ID_RE.test(id)) return { ok: false, error: `Identificador inválido: "${id}"` };
+              if (seen.has(id))          return { ok: false, error: `Identificador duplicado: "${id}"` };
+              seen.add(id);
+              const label = String(raw.label || '').trim();
+              if (!label || label.length > 40) return { ok: false, error: `Nombre inválido en "${id}" (1 a 40 caracteres)` };
+              const color = HEX_RE.test(String(raw.color || '')) ? String(raw.color).toLowerCase() : '#64748b';
+              out.push({
+                      id, label, color, position: i,
+                      isWon:   id === 'converted',
+                      isLost:  id === 'lost',
+                      isEntry: id === 'new',
+              });
+      }
+      for (const p of PROTECTED_STAGE_IDS) {
+              if (!seen.has(p)) return { ok: false, error: `La columna "${p}" es del sistema y no se puede eliminar` };
+      }
+      return { ok: true, stages: out };
+}
+
+// Guarda la lista COMPLETA en una sola transacción.
+// Nunca reasigna leads: si una columna a borrar aún tiene leads, se rechaza
+// entera (409) y no se toca absolutamente nada.
+async function savePipelineStages(username, stages) {
+      if (!pool) return { ok: true, stages, deletedRules: 0 };
+      const client = await pool.connect();
+      try {
+              await client.query('BEGIN');
+              const { rows: cur } = await client.query(
+                      'SELECT stage_id FROM pipeline_stage_labels WHERE username=$1 FOR UPDATE', [username]
+              );
+              const incoming = new Set(stages.map(s => s.id));
+              const removed  = cur.map(r => r.stage_id).filter(id => !incoming.has(id));
+
+              if (removed.length) {
+                      const { rows: used } = await client.query(
+                              `SELECT data->>'stage' AS stage, COUNT(*)::int AS c
+                                 FROM leads WHERE username=$1 AND data->>'stage' = ANY($2::text[])
+                                GROUP BY 1`,
+                              [username, removed]
+                      );
+                      if (used.length) {
+                              await client.query('ROLLBACK');
+                              return {
+                                      ok: false, status: 409,
+                                      error: 'Hay leads en columnas que quieres borrar. Muévelos primero.',
+                                      blocked: used.map(u => ({ stage: u.stage, count: u.c })),
+                              };
+                      }
+              }
+
+              for (const s of stages) {
+                      await client.query(
+                              `INSERT INTO pipeline_stage_labels (username, stage_id, label, "position", color, is_won, is_lost, is_entry)
+                               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                               ON CONFLICT (username, stage_id) DO UPDATE
+                                 SET label=$3, "position"=$4, color=$5, is_won=$6, is_lost=$7, is_entry=$8`,
+                              [username, s.id, s.label, s.position, s.color, s.isWon, s.isLost, s.isEntry]
+                      );
+              }
+
+              let deletedRules = 0;
+              if (removed.length) {
+                      await client.query('DELETE FROM pipeline_stage_labels WHERE username=$1 AND stage_id = ANY($2::text[])', [username, removed]);
+                      const del = await client.query('DELETE FROM meta_stage_rules WHERE username=$1 AND stage_id = ANY($2::text[])', [username, removed]);
+                      deletedRules = del.rowCount || 0;
+              }
+              await client.query('COMMIT');
+              return { ok: true, stages, deletedRules };
+      } catch (e) {
+              await client.query('ROLLBACK').catch(() => {});
+              throw e;
+      } finally {
+              client.release();
+      }
+}
+
 
 // ── WhatsApp message template per client ─────────────────────────
 const DEFAULT_WA_TEMPLATE = 'Hola {nombre}, te contactamos por tu consulta. ¿Cómo estás?';
@@ -698,31 +825,34 @@ app.post('/admin/meta-config/:username/test-fire', requireAdmin, async (req, res
 });
 
 // -- Pipeline Stages API (client: read & save custom column labels) ────────────
-// GET /api/pipeline-stages  → returns [{id, label}, ...]
+// GET /api/pipeline-stages → [{id,label,position,color,isWon,isLost,isEntry}]
+// Retrocompatible: el front antiguo solo lee id y label.
 app.get('/api/pipeline-stages', async (req, res) => {
-    try {
-            const labels = await getPipelineStageLabels(req.session.username);
-                    res.json(labels);
-                        } catch (e) {
-                                console.error('pipeline-stages GET error:', e);
-                                        res.status(500).json({ error: 'Error interno' });
-                                            }
-                                            });
+      try {
+              res.json(await getPipelineStages(req.session.username));
+      } catch (e) {
+              console.error('pipeline-stages GET error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
 
-                                            // PUT /api/pipeline-stages  body: [{id, label}, ...]
-                                            app.put('/api/pipeline-stages', async (req, res) => {
-                                                try {
-                                                        const stages = req.body;
-                                                                if (!Array.isArray(stages)) return res.status(400).json({ error: 'Array requerido' });
-                                                                        await savePipelineStageLabels(req.session.username, stages);
-                                                                                res.json({ ok: true });
-                                                                                    } catch (e) {
-                                                                                            console.error('pipeline-stages PUT error:', e);
-                                                                                                    res.status(500).json({ error: 'Error interno' });
-                                                                                                        }
-                                                                                                        });
+// PUT /api/pipeline-stages  body: [{id,label,color}, ...] (o {stages:[...]})
+// Guarda la lista COMPLETA de columnas del cliente.
+app.put('/api/pipeline-stages', async (req, res) => {
+      try {
+              const input = Array.isArray(req.body) ? req.body : (req.body && req.body.stages);
+              const v = validateStages(input);
+              if (!v.ok) return res.status(400).json({ error: v.error });
+              const r = await savePipelineStages(req.session.username, v.stages);
+              if (!r.ok) return res.status(r.status || 409).json({ error: r.error, blocked: r.blocked || [] });
+              res.json({ ok: true, stages: r.stages, deletedRules: r.deletedRules || 0 });
+      } catch (e) {
+              console.error('pipeline-stages PUT error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
 
-                                                                                                        // -- Admin: pipeline stages for all clients ────────────────────────────────────
+
                                                                                                         // GET /admin/pipeline-stages/:username
                                                                                                         app.get('/admin/pipeline-stages/:username', requireAdmin, async (req, res) => {
                                                                                                             try {
@@ -840,7 +970,7 @@ app.post('/api/webhook/:key', async (req, res) => {
               source: trunc(b.source, 60) || 'Facebook Ads',
               campaign: trunc(b.campaign, 120), adSet: trunc(b.adSet, 120),
               adName: trunc(b.adName || b.ad_name || b.utm_ad || b.ad || b.anuncio || b.utm_content, 120),
-              stage: 'new', notes: trunc(b.notes, 1000),
+              stage: await getEntryStageId(user.username), notes: trunc(b.notes, 1000),
               createdAt: b.createdAt || todayISO(), followUpDate: tomorrowISO(),
               value: Number(b.value) || 0,
       };
@@ -848,7 +978,7 @@ app.post('/api/webhook/:key', async (req, res) => {
 
            // Fire Meta CAPI for 'new' stage if rule exists
            const rules = await getMetaStageRules(user.username);
-      const rule = rules.find(r => r.stageId === 'new' && r.enabled);
+      const rule = rules.find(r => r.stageId === lead.stage && r.enabled);
       if (rule) {
               const cfg = await getMetaPixelConfig(user.username);
               fireMetaEvent(cfg, rule.metaEvent, lead).catch(e => console.error('Meta CAPI webhook fire error:', e));
