@@ -17,6 +17,10 @@ const NOTIFY_HOUR = parseInt(process.env.NOTIFY_HOUR || '11', 10);
 const TO_EMAIL    = process.env.NOTIFY_EMAIL || 'yo@arturoabellan.com';
 const FROM_EMAIL  = process.env.RESEND_FROM  || 'LAX Group CRM <onboarding@resend.dev>';
 const CRM_URL     = process.env.CRM_URL      || 'https://laxcrm.up.railway.app';
+// El aviso NO incluye los vencidos: hay miles arrastrados de antiguo y sólo
+// generaban ruido. Se siguen contando para verlos en el panel de admin, pero
+// no se notifican. Poner NOTIFY_INCLUDE_OVERDUE=true para volver a incluirlos.
+const INCLUDE_OVERDUE = process.env.NOTIFY_INCLUDE_OVERDUE === 'true';
 
 // ── Fecha de hoy en la zona horaria del negocio (el servidor va en UTC) ──
 function todayIn(tz) {
@@ -168,12 +172,14 @@ function buildEmailHtml(data) {
         ${rest > 0 ? `<div style="font-size:12px;color:#6b7280;margin:6px 0 0;">y ${rest} más — verlos en el CRM</div>` : ''}`;
       };
 
-      const clientBlocks = clients.map(c => `
+      // Sin los vencidos, sólo se listan los clientes que tienen algo HOY
+      const visibles = INCLUDE_OVERDUE ? clients : clients.filter(c => c.today.length);
+      const clientBlocks = visibles.map(c => `
         <div style="margin:0 0 26px;">
           <div style="font-size:16px;font-weight:700;color:#0b1120;padding-bottom:6px;border-bottom:2px solid #0000ff;display:inline-block;">
             ${esc(c.name)}
           </div>
-          ${block('Vencidos — sin contactar', c.overdue, true)}
+          ${INCLUDE_OVERDUE ? block('Vencidos — sin contactar', c.overdue, true) : ''}
           ${block('Para hoy', c.today, false)}
         </div>`).join('');
 
@@ -192,17 +198,17 @@ function buildEmailHtml(data) {
     </div>
 
     <div style="display:flex;gap:10px;margin-bottom:22px;">
-      <div style="flex:1;background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:14px;">
+      <div style="flex:1;max-width:${INCLUDE_OVERDUE ? 'none' : '190px'};background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:14px;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:600;">Para hoy</div>
         <div style="font-size:26px;font-weight:700;color:#0000ff;margin-top:2px;">${totalToday}</div>
       </div>
-      <div style="flex:1;background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:14px;">
+      ${INCLUDE_OVERDUE ? `<div style="flex:1;background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:14px;">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:600;">Vencidos</div>
         <div style="font-size:26px;font-weight:700;color:${totalOverdue ? '#b91c1c' : '#0b1120'};margin-top:2px;">${totalOverdue}</div>
-      </div>
+      </div>` : ''}
     </div>
 
-    ${clientBlocks || '<div style="background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:20px;text-align:center;color:#6b7280;font-size:14px;">No hay seguimientos pendientes. 🎉</div>'}
+    ${clientBlocks || '<div style="background:#fff;border:1px solid #eef0f4;border-radius:10px;padding:20px;text-align:center;color:#6b7280;font-size:14px;">Hoy no toca contactar a nadie. 🎉</div>'}
 
     <div style="text-align:center;margin:26px 0 10px;">
       <a href="${CRM_URL}" style="background:#0000ff;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 26px;border-radius:9px;display:inline-block;">
@@ -220,13 +226,15 @@ function buildEmailHtml(data) {
 // force=true → envía aunque no haya nada pendiente (para la prueba manual)
 async function sendDigest(deps, { force = false } = {}) {
       const data = await collectFollowUps(deps);
-      const total = data.totalToday + data.totalOverdue;
-      if (!total && !force) return { sent: false, reason: 'Sin seguimientos pendientes', ...data };
+      // Sólo cuentan los de HOY: los vencidos ya no se notifican (siguen
+      // visibles en el panel de admin y en el CRM).
+      const total = INCLUDE_OVERDUE ? data.totalToday + data.totalOverdue : data.totalToday;
+      if (!total && !force) return { sent: false, reason: 'Hoy no toca contactar a nadie', ...data };
 
       const subject = total
               ? `📋 ${data.totalToday} seguimiento${data.totalToday === 1 ? '' : 's'} para hoy` +
-                (data.totalOverdue ? ` · ${data.totalOverdue} vencido${data.totalOverdue === 1 ? '' : 's'}` : '')
-              : '📋 Sin seguimientos pendientes hoy';
+                (INCLUDE_OVERDUE && data.totalOverdue ? ` · ${data.totalOverdue} vencido${data.totalOverdue === 1 ? '' : 's'}` : '')
+              : '📋 Hoy no toca contactar a nadie';
 
       await sendViaResend(TO_EMAIL, subject, buildEmailHtml(data));
       return { sent: true, to: TO_EMAIL, subject, ...data };
