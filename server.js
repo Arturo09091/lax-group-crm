@@ -995,10 +995,50 @@ app.get('/login', (req, res) => {
 });
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'leadflow-crm.html')));
 
+// ── Aviso diario de seguimientos por correo ───────────────────────
+const followupNotifier = require('./followup-notifier');
+const notifierDeps = { pool, getUsers, getPipelineStages };
+
+// Admin: ver qué se enviaría ahora mismo (NO envía nada)
+app.get('/admin/followup-preview', requireAdmin, async (req, res) => {
+      try {
+              const d = await followupNotifier.collectFollowUps(notifierDeps);
+              res.json({
+                      configurado: !!process.env.RESEND_API_KEY,
+                      destinatario: followupNotifier.TO_EMAIL,
+                      hora: followupNotifier.NOTIFY_HOUR,
+                      zona: followupNotifier.TZ,
+                      hoy: d.today, totalHoy: d.totalToday, totalVencidos: d.totalOverdue,
+                      clientes: d.clients.map(c => ({ nombre: c.name, hoy: c.today.length, vencidos: c.overdue.length })),
+              });
+      } catch (e) {
+              console.error('followup-preview error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
+
+// Admin: enviar el aviso AHORA (prueba manual)
+app.post('/admin/followup-test', requireAdmin, async (req, res) => {
+      try {
+              if (!process.env.RESEND_API_KEY) {
+                      return res.status(400).json({ error: 'Falta configurar RESEND_API_KEY en Railway' });
+              }
+              const r = await followupNotifier.sendDigest(notifierDeps, { force: true });
+              res.json({ ok: true, enviadoA: r.to, asunto: r.subject, totalHoy: r.totalToday, totalVencidos: r.totalOverdue });
+      } catch (e) {
+              console.error('followup-test error:', e);
+              res.status(500).json({ error: e.message || 'Error al enviar' });
+      }
+});
+
+
 // ── Start ─────────────────────────────────────────────────────────
 bootstrap().then(() => {
       app.listen(PORT, () => {
               console.log(`\u2705 LAX Group CRM \u2192 http://localhost:${PORT}`);
               console.log(`\uD83D\uDCE1 Webhooks \u2192 http://localhost:${PORT}/api/webhook/:key`);
       });
+      // El programador no puede tumbar el arranque bajo ningún concepto
+      try { followupNotifier.startScheduler(notifierDeps); }
+      catch (e) { console.error('\u26A0\uFE0F  Programador de avisos no iniciado:', e.message); }
 }).catch(err => { console.error('Error al arrancar:', err); process.exit(1); });
