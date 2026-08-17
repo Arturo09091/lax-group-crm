@@ -1024,6 +1024,25 @@ app.put('/api/notification-settings', async (req, res) => {
       }
 });
 
+// Admin: resumen de qué clientes tienen el aviso activado y con qué ajustes
+app.get('/admin/notification-settings', requireAdmin, async (req, res) => {
+      try {
+              const clients = (await getUsers()).filter(u => u.role === 'client');
+              const out = await Promise.all(clients.map(async u => {
+                      const s = await followupNotifier.getSettings(pool, u.username);
+                      return {
+                              username: u.username, name: u.name,
+                              enabled: s.enabled, emails: s.emails, hour: s.hour,
+                              includeOverdue: s.includeOverdue, weekdaysOnly: s.weekdaysOnly,
+                      };
+              }));
+              res.json(out.sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0) || a.name.localeCompare(b.name)));
+      } catch (e) {
+              console.error('admin notification-settings error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
+
 // Prueba: envía el aviso ahora mismo a los correos guardados
 app.post('/api/notification-settings/test', async (req, res) => {
       try {
