@@ -997,7 +997,46 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'leadflow-crm.html'
 
 // ── Aviso diario de seguimientos por correo ───────────────────────
 const followupNotifier = require('./followup-notifier');
-const notifierDeps = { pool, getUsers, getPipelineStages };
+const notifierDeps = { pool, getUsers, getPipelineStages, getWhatsappTemplate };
+
+// ── Ajustes de aviso de CADA CLIENTE (su propio correo y horario) ──
+// Nota: si el admin está impersonando, req.session.username es el del cliente,
+// así que puede configurarlo por él entrando con "Ver como".
+app.get('/api/notification-settings', async (req, res) => {
+      try {
+              const s = await followupNotifier.getSettings(pool, req.session.username);
+              res.json({ ...s, emails: s.emails.join(', '), configurado: !!process.env.RESEND_API_KEY });
+      } catch (e) {
+              console.error('notification-settings GET error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
+
+app.put('/api/notification-settings', async (req, res) => {
+      try {
+              const v = followupNotifier.validateSettings(req.body);
+              if (!v.ok) return res.status(400).json({ error: v.error });
+              await followupNotifier.saveSettings(pool, req.session.username, v.settings);
+              res.json({ ok: true, ...v.settings, emails: v.settings.emails.join(', ') });
+      } catch (e) {
+              console.error('notification-settings PUT error:', e);
+              res.status(500).json({ error: 'Error interno' });
+      }
+});
+
+// Prueba: envía el aviso ahora mismo a los correos guardados
+app.post('/api/notification-settings/test', async (req, res) => {
+      try {
+              if (!process.env.RESEND_API_KEY) return res.status(400).json({ error: 'El envío de correo no está configurado' });
+              const s = await followupNotifier.getSettings(pool, req.session.username);
+              if (!s.emails.length) return res.status(400).json({ error: 'Guarda primero un correo' });
+              const r = await followupNotifier.sendClientDigest(notifierDeps, req.session.username, s, { force: true });
+              res.json({ ok: true, enviadoA: r.to, totalHoy: r.totalToday, totalVencidos: r.totalOverdue });
+      } catch (e) {
+              console.error('notification-settings test error:', e);
+              res.status(500).json({ error: e.message || 'Error al enviar' });
+      }
+});
 
 // Admin: ver qué se enviaría ahora mismo (NO envía nada)
 app.get('/admin/followup-preview', requireAdmin, async (req, res) => {

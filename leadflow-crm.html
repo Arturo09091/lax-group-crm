@@ -2063,6 +2063,182 @@ function ReportsView({ leads }) {
   );
 }
 
+/* ══════════════════ AVISOS POR CORREO (cliente) ═════════════════ */
+
+function AvisosView({ leads, showToast }) {
+  const { isClosed } = useStages();
+  const [s, setS]         = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [dirty, setDirty]   = useState(false);
+
+  useEffect(() => {
+    fetch('/api/notification-settings').then(r => r.json())
+      .then(d => setS({ enabled:false, emails:'', includeOverdue:false, hour:9, weekdaysOnly:true, ...d }))
+      .catch(() => showToast('No se pudieron cargar los ajustes', 'error'));
+  }, []);
+
+  // Cuántos leads entrarían HOY en el aviso (para que se vea el efecto real)
+  const hoy = todayISO();
+  const cuentaHoy     = leads.filter(l => l.followUpDate === hoy && !isClosed(l.stage)).length;
+  const cuentaVencidos = leads.filter(l => l.followUpDate && l.followUpDate < hoy && !isClosed(l.stage)).length;
+
+  const set = (k, v) => { setS(x => ({ ...x, [k]: v })); setDirty(true); };
+
+  // finally: si el servidor rechaza el guardado, el botón DEBE volver a
+  // habilitarse. Con un return dentro del try se quedaba en "Guardando…".
+  const guardar = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch('/api/notification-settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: s.enabled, emails: s.emails, includeOverdue: s.includeOverdue, hour: s.hour, weekdaysOnly: s.weekdaysOnly }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { showToast(d.error || 'No se pudo guardar', 'error'); return; }
+      // 'configurado' sólo viene en la carga inicial: si se pisara aquí, el
+      // botón de prueba se quedaría deshabilitado justo después de guardar.
+      setS(x => ({ ...x, ...d, configurado: x.configurado }));
+      setDirty(false);
+      showToast(d.enabled ? 'Aviso activado' : 'Ajustes guardados', 'success');
+    } catch {
+      showToast('Error de conexión', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const probar = async () => {
+    setTesting(true);
+    try {
+      const r = await fetch('/api/notification-settings/test', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      showToast(r.ok ? `Correo de prueba enviado a ${(d.enviadoA||[]).join(', ')}` : (d.error || 'No se pudo enviar'), r.ok ? 'success' : 'error');
+    } catch {
+      showToast('Error de conexión', 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (!s) return <div className="p-6 text-slate-400">Cargando…</div>;
+
+  const horas = Array.from({ length: 24 }, (_, i) => i);
+
+  return (
+    <div className="p-4 sm:p-6 anim-fade max-w-2xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-800">Avisos por correo</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Recibe cada día un correo con las personas a las que tienes que contactar.</p>
+      </div>
+
+      {!s.configurado && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-4">
+          El envío de correo aún no está disponible en esta cuenta. Habla con tu gestor de LAX.
+        </div>
+      )}
+
+      {/* Resumen de lo que entraría hoy */}
+      <div className="flex gap-3 mb-5 flex-wrap">
+        <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+          <div className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Para hoy</div>
+          <div className="text-2xl font-bold text-indigo-600">{cuentaHoy}</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+          <div className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Vencidos</div>
+          <div className={`text-2xl font-bold ${cuentaVencidos ? 'text-red-600' : 'text-slate-700'}`}>{cuentaVencidos}</div>
+        </div>
+      </div>
+
+      <div className="bg-white border rounded-2xl p-5 sm:p-6 space-y-5">
+
+        {/* Activar */}
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" checked={!!s.enabled} onChange={e => set('enabled', e.target.checked)}
+            className="mt-0.5 w-5 h-5 rounded accent-indigo-600 flex-shrink-0" />
+          <div>
+            <div className="font-semibold text-slate-800">Quiero recibir el aviso diario</div>
+            <div className="text-xs text-slate-500">Si no hay nadie a quien contactar, no se envía nada.</div>
+          </div>
+        </label>
+
+        {/* Correos */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+            ¿A qué correo lo enviamos?
+          </label>
+          <input value={s.emails || ''} onChange={e => set('emails', e.target.value)}
+            className={inputCls} placeholder="tucorreo@ejemplo.com" />
+          <div className="text-xs text-slate-400 mt-1">
+            Puedes poner varios separados por comas (hasta 5), por si lo quiere recibir tu equipo.
+          </div>
+        </div>
+
+        {/* Qué incluir */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">¿Qué quieres que incluya?</label>
+          <div className="space-y-2">
+            <label className="flex items-start gap-3 cursor-pointer border border-slate-200 rounded-xl p-3 hover:bg-slate-50 transition-colors">
+              <input type="radio" name="inc" checked={!s.includeOverdue} onChange={() => set('includeOverdue', false)}
+                className="mt-0.5 w-4 h-4 accent-indigo-600 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-slate-800">Solo los de hoy</div>
+                <div className="text-xs text-slate-500">Las personas cuya fecha de contacto es hoy. Correo corto y al grano.</div>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer border border-slate-200 rounded-xl p-3 hover:bg-slate-50 transition-colors">
+              <input type="radio" name="inc" checked={!!s.includeOverdue} onChange={() => set('includeOverdue', true)}
+                className="mt-0.5 w-4 h-4 accent-indigo-600 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-slate-800">Los de hoy y también los vencidos</div>
+                <div className="text-xs text-slate-500">
+                  Añade los que se quedaron sin contactar{cuentaVencidos > 0 ? ` (ahora mismo tienes ${cuentaVencidos})` : ''}. Se muestran los más recientes primero.
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Hora y días */}
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">¿A qué hora?</label>
+            <select value={s.hour} onChange={e => set('hour', parseInt(e.target.value, 10))} className={inputCls}>
+              {horas.map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00</option>)}
+            </select>
+            <div className="text-xs text-slate-400 mt-1">Hora peninsular española.</div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">¿Qué días?</label>
+            <select value={s.weekdaysOnly ? 'lv' : 'all'} onChange={e => set('weekdaysOnly', e.target.value === 'lv')} className={inputCls}>
+              <option value="lv">Solo de lunes a viernes</option>
+              <option value="all">Todos los días</option>
+            </select>
+            <div className="text-xs text-slate-400 mt-1">Para no recibirlo en fin de semana.</div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1 flex-wrap">
+          <button onClick={guardar} disabled={saving}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50">
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+          <button onClick={probar} disabled={testing || dirty || !s.emails || !s.configurado}
+            title={dirty ? 'Guarda primero los cambios' : 'Te enviamos el aviso ahora mismo'}
+            className="border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-sm px-5 py-2.5 rounded-xl transition-colors disabled:opacity-40">
+            {testing ? 'Enviando…' : 'Enviarme una prueba'}
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-400 mt-4 leading-relaxed">
+        En el correo verás cada persona con botones para escribirle por WhatsApp o llamarla directamente,
+        con el mensaje que ya tienes configurado. Los leads marcados como convertidos o perdidos nunca se avisan.
+      </p>
+    </div>
+  );
+}
+
 /* ═══════════════════════════ SIDEBAR ════════════════════════════ */
 
 function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) {
@@ -2098,6 +2274,7 @@ function Sidebar({ view, goTo, leads, syncing, lastSync, me, isOpen, onClose }) 
         { id: 'pipeline',   label: 'Pipeline',       icon: 'pipeline' },
         { id: 'reports',    label: 'Informes',       icon: 'chart' },
         { id: 'reminders',  label: 'Recordatorios',  icon: 'bell', badge: alertCount },
+        { id: 'avisos',     label: 'Avisos',         icon: 'mail' },
       ];
 
   // Pipeline rápido: columnas abiertas (sin las de "perdido"), tope 6 para no
@@ -2981,7 +3158,7 @@ function App() {
   const isAdmin    = me?.role === 'admin';
   const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, onImport: handleImport, showToast, waTemplate, waApp };
 
-  const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
+  const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', avisos:'Avisos', admin:'Clientes' };
 
   // Pantalla de carga mientras se comprueba la sesión Y llegan las columnas del
   // cliente: si no se espera, el tablero pinta las 6 por defecto y da un salto.
@@ -3055,6 +3232,7 @@ function App() {
                     {view === 'pipeline'  && !isAdmin && <PipelineView    {...commonProps} />}
         {view === 'reports'   && !isAdmin && <ReportsView   leads={leads} />}
         {view === 'reminders' && !isAdmin && <RemindersView {...commonProps} />}
+        {view === 'avisos'    && !isAdmin && <AvisosView leads={leads} showToast={showToast} />}
       </main>
 
       {/* Modal */}
