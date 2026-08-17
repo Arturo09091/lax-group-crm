@@ -33,7 +33,14 @@ const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.pa
 function sendViaResend(to, subject, html) {
       const apiKey = process.env.RESEND_API_KEY;
       if (!apiKey) return Promise.reject(new Error('RESEND_API_KEY no configurada'));
-      const body = JSON.stringify({ from: FROM_EMAIL, to: Array.isArray(to) ? to : [to], subject, html });
+      // reply_to: el remitente es un buzón técnico al que no se accede, así que
+      // cualquier respuesta debe volver a la dirección real del destinatario.
+      const body = JSON.stringify({
+              from: FROM_EMAIL,
+              to: Array.isArray(to) ? to : [to],
+              reply_to: TO_EMAIL,
+              subject, html,
+      });
       return new Promise((resolve, reject) => {
               const req = https.request({
                       hostname: 'api.resend.com', path: '/emails', method: 'POST',
