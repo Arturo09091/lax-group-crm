@@ -111,8 +111,14 @@ async function collectFollowUps(deps) {
               });
       }
 
+      // Los vencidos se ordenan del MÁS RECIENTE al más antiguo: un lead de hace
+      // 2 días aún se rescata, uno de hace 8 meses es ruido histórico.
       const clients = [...byUser.values()]
-              .map(c => ({ ...c, overdue: c.overdue.sort((a, b) => b.lateDays - a.lateDays) }))
+              .map(c => ({
+                      ...c,
+                      overdue: c.overdue.sort((a, b) => a.lateDays - b.lateDays),
+                      today:   c.today.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+              }))
               .filter(c => c.today.length || c.overdue.length)
               .sort((a, b) => (b.today.length + b.overdue.length) - (a.today.length + a.overdue.length));
 
@@ -143,13 +149,24 @@ function buildEmailHtml(data) {
           </td>
         </tr>`;
 
-      const block = (title, leads, late) => !leads.length ? '' : `
+      // Tope por bloque: con miles de vencidos el correo sería inmanejable y
+      // Gmail lo recorta a partir de ~102 KB. Se muestran los más accionables
+      // y se indica cuántos quedan.
+      const MAX_TODAY = 25, MAX_OVERDUE = 8;
+      const block = (title, leads, late) => {
+              if (!leads.length) return '';
+              const cap  = late ? MAX_OVERDUE : MAX_TODAY;
+              const list = leads.slice(0, cap);
+              const rest = leads.length - list.length;
+              return `
         <div style="margin:14px 0 4px;font-size:13px;font-weight:700;color:${late ? '#b91c1c' : '#0b1120'};">
-          ${title} (${leads.length})
+          ${title} (${leads.length})${late && rest > 0 ? ' <span style="font-weight:400;color:#6b7280;">— los más recientes</span>' : ''}
         </div>
         <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #eef0f4;border-radius:8px;">
-          ${leads.map(l => row(l, late)).join('')}
-        </table>`;
+          ${list.map(l => row(l, late)).join('')}
+        </table>
+        ${rest > 0 ? `<div style="font-size:12px;color:#6b7280;margin:6px 0 0;">y ${rest} más — verlos en el CRM</div>` : ''}`;
+      };
 
       const clientBlocks = clients.map(c => `
         <div style="margin:0 0 26px;">
