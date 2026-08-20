@@ -463,7 +463,7 @@ function Avatar({ name, size = 'md' }) {
 
 /* ═══════════════════════════ LEAD MODAL ════════════════════════ */
 
-function LeadModal({ lead, onSave, onClose }) {
+function LeadModal({ lead, onSave, onClose, onToggleImportant }) {
   const { stages, byId, entryId } = useStages();
   const isNew = !lead?.id;
   const [form, setForm] = useState(() => lead?.id ? { ...lead } : {
@@ -547,7 +547,11 @@ function LeadModal({ lead, onSave, onClose }) {
           {/* Un solo clic marca el lead como prioritario: se muestra con borde
               rojo en el tablero, la tabla y los recordatorios. */}
           <Field label="Prioridad" span>
-            <button type="button" onClick={() => set('important', !form.important)}
+            <button type="button" onClick={() => {
+                const next = !form.important;
+                set('important', next);
+                if (!isNew && onToggleImportant) onToggleImportant(form.id, next);
+              }}
               className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors flex items-center justify-center gap-2
                 ${form.important
                   ? 'bg-red-50 border-red-500 text-red-600'
@@ -3103,7 +3107,7 @@ function App() {
       // Nunca metemos un no-array en el estado → la app no puede romperse.
       if (Array.isArray(serverLeads)) {
         const sig = serverLeads.length + '|' + serverLeads.map(l =>
-          l.id+':'+l.stage+':'+(l.value||'')+':'+(l.followUpDate||'')+':'+(l.name||'')+':'+(l.campaign||'')+':'+(l.source||'')+':'+(l.email||'')+':'+(l.phone||'')
+          l.id+':'+l.stage+':'+(l.value||'')+':'+(l.followUpDate||'')+':'+(l.name||'')+':'+(l.campaign||'')+':'+(l.source||'')+':'+(l.email||'')+':'+(l.phone||'')+':'+(l.important?'1':'')
         ).join(';');
         if (sig !== lastSigRef.current) {           // solo si algo cambió de verdad
           lastSigRef.current = sig;
@@ -3166,6 +3170,20 @@ function App() {
       setLeads(ls => ls.some(l => l.id === lead.id) ? ls : [lead, ...ls]);
       showToast(`No se pudo eliminar "${lead.name}". Inténtalo de nuevo.`, 'error');
     }
+  };
+
+  // Marcar/desmarcar Importante se guarda AL INSTANTE (sin pasar por
+  // "Guardar Cambios"): solo toca ese campo sobre el lead ya guardado, así
+  // no arrastra otros cambios de la ficha que el usuario no haya confirmado.
+  const toggleImportant = async (id, value) => {
+    const current = leads.find(l => l.id === id);
+    if (!current) return;
+    const updated = leads.map(l => l.id === id ? { ...l, important: value } : l);
+    setLeads(updated);
+    cacheLeads(updated);
+    showToast(value ? '🚩 Marcado como importante' : 'Ya no está marcado como importante', 'success');
+    try { await api.updateLead({ ...current, important: value }); }
+    catch { showToast('No se pudo guardar el marcado', 'error'); }
   };
 
   const handleStageChange = async (id, stage) => {
@@ -3286,7 +3304,7 @@ function App() {
 
       {/* Modal */}
       {modal !== undefined && (
-        <LeadModal lead={modal} onSave={handleSave} onClose={closeModal} />
+        <LeadModal lead={modal} onSave={handleSave} onClose={closeModal} onToggleImportant={toggleImportant} />
       )}
 
       {/* Confirmación de borrado (diálogo propio: fiable en móvil y escritorio) */}
